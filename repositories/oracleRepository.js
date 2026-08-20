@@ -7,32 +7,13 @@ const { fixNullString } = require('../utils/nullHelpers');
 const { STORED_PROC_PARAMS, INPUT_PARAMS, RESPONSE_PARAM } = require('./storedProcContract');
 
 let oraclePool = null;
-let oracleClientInitialized = false;
-
-/**
- * node-oracledb runs in Thin mode by default and needs no Oracle Client libraries.
- * Thick mode is opt-in via ORACLE_THICK_MODE, with ORACLE_CLIENT_LIB_DIR pointing at
- * the client install. Called from connectDB() rather than at module load so that
- * importing this module stays side-effect free (and testable on any platform).
- */
-function initializeOracleClient() {
-  if (oracleClientInitialized || !envConfig.oracleThickMode) return;
-
-  const options = {};
-  if (envConfig.oracleClientLibDir) options.libDir = envConfig.oracleClientLibDir;
-  oracledb.initOracleClient(options);
-  oracleClientInitialized = true;
-}
 
 /** Creates the shared Oracle connection pool from environment credentials. */
-async function connectDB() {
-  initializeOracleClient();
 
-  if (envConfig.oracleConfigDir) {
-    // The Oracle client also reads TNS_ADMIN out-of-band (Thick mode, and
-    // node-oracledb's own fallback), so the process variable is still exported.
-    process.env.TNS_ADMIN = envConfig.oracleConfigDir;
-  }
+async function connectDB() {
+  oracledb.initOracleClient({
+    libDir: envConfig.oracleClientLibDir
+});
 
   oraclePool = await oracledb.createPool({
     user: envConfig.oracleUser,
@@ -207,5 +188,5 @@ module.exports = {
   execute,
   readLob,
   verifyConnectable,
-  initializeOracleClient
+
 };
