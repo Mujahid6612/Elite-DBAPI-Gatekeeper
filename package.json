@@ -1,0 +1,28 @@
+{
+  "name": "dbapi-nodejs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "fast-xml-parser": "^5.11.0",
+    "helmet": "^8.3.0",
+    "joi": "^18.2.3",
+    "morgan": "^1.11.0",
+    "nodemon": "^3.1.14",
+    "oracledb": "^7.0.1",
+    "winston": "^3.19.0"
+  }
+}
