@@ -28,6 +28,10 @@
  * @property {string} oMessage
  */
 
-// This module intentionally has no runtime exports; it exists so other files
-// can reference these typedefs via `@param {import('../types').ProcessRequestPayload}`.
+// This module intentionally has no runtime exports; it exists so other files can
+// reference these typedefs via `@param {import('../types').ProcessRequestPayload}`.
+//
+// Referenced by: repositories/dbRepository.js, repositories/oracleRepository.js,
+// repositories/sqlServerRepository.js and services/processRequestService.js. These
+// are the single source of truth - do not re-declare any of them locally.
 module.exports = {};

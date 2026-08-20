@@ -1,5 +1,16 @@
 'use strict';
 
+/**
+ * Json.NET `JToken` semantics, reproduced for the request body.
+ *
+ * Lives under parsers/ rather than validators/ because only `requireToken` validates
+ * anything - the other two are formatters that decide how a parsed value is rendered
+ * as text before it reaches the stored procedure.
+ *
+ * All three are behavioural contracts: the thrown message and the rendered strings
+ * reach the caller and the database verbatim.
+ */
+
 function missingMemberError() {
   return new TypeError('Object reference not set to an instance of an object.');
 }

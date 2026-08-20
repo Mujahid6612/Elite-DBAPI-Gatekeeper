@@ -1,5 +1,10 @@
 # DBAPI/LcomAPI migration analysis
 
+> **STATUS: current and authoritative for BEHAVIOR.** Every decision recorded here still
+> holds: the preserved quirks below are reproduced by the code and pinned by tests in
+> `test/characterization/`. Only file paths have moved - see `README.md` for the current
+> layout. Code-quality work is tracked separately in `CODE_QUALITY_RECOMMENDATIONS.md`.
+
 ## Scope reviewed
 
 The supplied C# project was inspected controller-by-controller and through each dependency reachable from `FlightViewController` and `ProcessRequestController`: routing, `ConfigReader`, `Configuration`, encryption, logger, `MDBAccess`/`ODBAccess`, and their data handlers. Legacy static UI assets and unrelated shared utility surface were not migrated.
@@ -95,6 +100,17 @@ The automated test suite verifies both fingerprints and that re-encrypting each 
 - Marker logs are written even when `enableLogging=0`; the flag only gates REQUEST/jsonRequest/ActionCode/RESPONSE blocks.
 - Current wildcard ordering prevents the explicit `SELF` tenant from being selected.
 - The source archive contains historical logs holding sensitive request data/credentials. They are deliberately excluded from the Node package.
+- The diagnostic GET reports `Is IP Whitelisted: False` for a caller it just admitted. The gate calls
+  `isIPWhitelisted(ip, true)` but the summary renders `isIPWhitelisted(ip)` with `checkStarCondition` defaulted to
+  false, and with `whitelistedIPs='*'` that branch returns false. Display-only; the access decision is unaffected.
+- A blank `<logType></logType>` coerces to `0`, i.e. HTML - not text. The `SELF` tenant would therefore log as HTML
+  if it were ever selected.
+- A request body larger than the body limit returns **500**, not 413: the error handler returns the generic Web API
+  payload for every unhandled error and ignores `err.status`.
+- Tenant log writes are synchronous and unguarded, so a full disk or a permissions failure on the log directory can
+  turn a successful request into a failure. Logging can take the API down.
+- Every tenant shares one database identity: the Oracle pool uses `ORACLE_USER`/`ORACLE_PASSWORD` from the
+  environment, not the per-tenant `targetDBConnectionString` decrypted from `config.xml`.
 
 ## Cross-platform substitutions / limits
 
@@ -105,10 +121,14 @@ The automated test suite verifies both fingerprints and that re-encrypting each 
 
 ## Production cutover checklist
 
-1. Run `npm install && npm test`.
+1. Run `npm ci && npm run lint && npm test` (193 tests; the suite now includes characterization tests that pin
+   every behavior listed above).
 2. Set `TNS_ADMIN` or `ORACLE_CONFIG_DIR` so the encrypted connection string's `Data Source` alias resolves.
 3. Verify DB connectivity from the Node host and execute a safe test `ActionCode` against `REQUEST_HANDLER.ACTIONS`.
 4. Replay captured production requests against old/new services and compare bodies and headers, especially string content negotiation.
 5. Test a representative FlightView XML response and `RESP=JSON` result side-by-side.
 6. Decide explicitly whether to retain or fix the secret-leaking diagnostic GET, always-200 caught POST errors, wildcard/SELF ordering, and null-config logging bug.
 7. Rotate credentials because the supplied source archive includes old logs/config material containing sensitive values.
+8. **Set `ORACLE_THICK_MODE=true` and `ORACLE_CLIENT_LIB_DIR` on the existing Windows host.** Earlier builds called
+   `initOracleClient()` unconditionally, so they always ran in Thick mode regardless of the flag. That call is now
+   gated, and leaving the flag unset switches the service to Thin mode.

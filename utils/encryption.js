@@ -46,10 +46,7 @@ function decryptString(
   const iv = Buffer.from(initVector, 'ascii');
   const decipher = crypto.createDecipheriv(`aes-${keySize}-cbc`, key, iv);
   decipher.setAutoPadding(true);
-  return Buffer.concat([
-    decipher.update(Buffer.from(String(cipherText), 'base64')),
-    decipher.final()
-  ]).toString('utf8');
+  return Buffer.concat([decipher.update(Buffer.from(String(cipherText), 'base64')), decipher.final()]).toString('utf8');
 }
 
 function encryptString(

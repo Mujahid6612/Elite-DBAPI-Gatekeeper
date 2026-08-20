@@ -1,28 +1,55 @@
 {
-  "name": "dbapi-nodejs",
+  "name": "elite-db-gatekeeper",
   "version": "1.0.0",
-  "description": "",
+  "description": "Elite DB Gatekeeper - Node.js/Express parity migration of the ASP.NET Web API 2 LcomAPI/DBAPI backend. Multi-tenant stored-procedure gateway with per-tenant config, IP gating and audit logging.",
   "main": "server.js",
   "scripts": {
-    "test": "node --test test/*.test.js",
-    "dev": "node server.js",
+    "test": "node --test test/*.test.js test/characterization/*.test.js test/unit/*.test.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev": "nodemon server.js",
     "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "dbapi",
+    "gatekeeper",
+    "oracle",
+    "stored-procedure",
+    "express",
+    "multi-tenant",
+    "migration"
+  ],
+  "author": "Mujahid Ali",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.6.2",
     "fast-xml-parser": "^5.11.0",
-    "helmet": "^8.3.0",
-    "joi": "^18.2.3",
-    "morgan": "^1.11.0",
+    "oracledb": "^7.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-n": "^18.3.0",
+    "globals": "^17.11.0",
     "nodemon": "^3.1.14",
-    "oracledb": "^7.0.1",
-    "winston": "^3.19.0"
-  }
+    "prettier": "^3.9.6"
+  },
+  "peerDependencies": {
+    "mssql": "^11.0.1"
+  },
+  "peerDependenciesMeta": {
+    "mssql": {
+      "optional": true
+    }
+  },
+  "private": true
 }

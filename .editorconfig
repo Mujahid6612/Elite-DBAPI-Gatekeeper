@@ -1,0 +1,17 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+# config.xml is a legacy artifact carried over from the .NET app; leave it alone.
+[config.xml]
+insert_final_newline = false
+trim_trailing_whitespace = false

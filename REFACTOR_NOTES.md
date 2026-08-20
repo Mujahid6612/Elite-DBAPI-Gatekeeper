@@ -1,5 +1,25 @@
 # Refactor notes
 
+> **STATUS: HISTORICAL.** This document records an earlier refactor delivery and is kept
+> as a record of that work. It is NOT a description of the current code. Since it was
+> written, the code-quality programme in `CODE_QUALITY_RECOMMENDATIONS.md` (phases 0-7)
+> has landed. Where the two disagree, that document and the code are authoritative.
+>
+> **One claim below was false when written.** Section 4 states that the hardcoded
+> Thick-mode Oracle client path was removed and replaced with an `ORACLE_THICK_MODE`
+> gate. It was not: `repositories/oracleRepository.js` still called
+> `oracledb.initOracleClient({ libDir: "C:\\app\\azs\\..." })` unconditionally at
+> module load, which made the module throw `NJS-045` on any non-Windows host, so the
+> process could not start at all. That was fixed in phase 0 (CQ-01). Note the
+> consequence: the app previously ran in **Thick** mode always, so an existing Windows
+> deployment must now set `ORACLE_THICK_MODE=true` and `ORACLE_CLIENT_LIB_DIR`
+> explicitly to keep that behavior.
+>
+> Other statements that have since been superseded: `tenantConfig.js` is now
+> `config/configReader.js` and is split across `xmlSettingsParser` / `configSource` /
+> `ipAccessPolicy`; `validators/` is now `parsers/`; and the `SERVER_PORT` no-op
+> mentioned at the end no longer exists in `.env`.
+
 Scope agreed with the project owner: **restructure into a full layered architecture; keep external and documented behavior 100% identical**, including the quirks catalogued in `MIGRATION_ANALYSIS.md`.
 
 ## What changed and why

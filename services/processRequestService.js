@@ -1,55 +1,37 @@
 'use strict';
 
-const ConfigReader = require('../config/tenantConfig');
-const Logger = require('../utils/logger');
+const { createConfigReader } = require('../config/configReaderProvider');
+const tenantAuditLog = require('../utils/tenantAuditLog');
 const dbRepository = require('../repositories/dbRepository');
 const { Messages, LibraryConstants } = require('../constants');
 const { fixNullString } = require('../utils/nullHelpers');
-const { requireToken, tokenToObjectString, tokenToString } = require('../validators/requestTokenParser');
-
-function dotNetBool(value) {
-  return value ? 'True' : 'False';
-}
-
-/** Builds the diagnostic GET response text for a resolved tenant + caller. */
-function buildDiagnosticSummary(config, clientIP, host) {
-  return [
-    'Welcome to LCOM Web API.',
-    `<br /><br />Source Website: ${config.sourceWebsite}`,
-    `<br /><br />Project Name: ${config.projectName}`,
-    `<br /><br />Target DB Connection String: ${config.targetDBConnectionString}`,
-    `<br /><br />Company Num: ${config.companyNum}`,
-    `<br /><br />Whitelisted IPs: ${config.whitelistedIPs}`,
-    `<br /><br />Blacklisted IPs: ${config.blacklistedIPs}`,
-    `<br /><br />Enable Logging: ${dotNetBool(config.enableLogging)}`,
-    `<br /><br />API Username: ${config.apiUserName}`,
-    `<br /><br />API Password: ${config.apiPassword}`,
-    '<br /><br /> <hr />',
-    `<br /><br />User IP Address: ${clientIP}`,
-    `<br /><br />Client Website: ${host}`,
-    `<br /><br />Is IP Whitelisted: ${dotNetBool(config.isIPWhitelisted(clientIP))}`,
-    `<br /><br />Is IP Blacklisted: ${dotNetBool(config.isIPBlacklisted(clientIP))}`
-  ].join('');
-}
+const { requireToken, tokenToObjectString, tokenToString } = require('../parsers/requestTokenParser');
+const { renderDiagnosticSummary } = require('./diagnosticSummaryView');
 
 /**
  * Resolves the diagnostic summary for `GET /DBAPI/ProcessRequest/:id`.
+ *
+ * `createConfig` is injectable purely for testing; every production call site uses
+ * the default, so behavior is unchanged.
  * Preserved as-is: this intentionally exposes the decrypted connection
  * string and API password to any caller that clears the IP gate. See
  * MIGRATION_ANALYSIS.md before removing this behavior.
  */
-function getDiagnosticSummary(host, clientIP) {
-  const config = new ConfigReader(host);
+function getDiagnosticSummary(host, clientIP, createConfig = createConfigReader) {
+  const config = createConfig(host);
   if (!config.isIPWhitelisted(clientIP, true)) throw new Error(Messages.BLACKLISTED_MESSAGE);
-  return buildDiagnosticSummary(config, clientIP, host);
+  return renderDiagnosticSummary(config, clientIP, host);
 }
 
 /**
- * Extracts and validates the required fields from the parsed request body,
- * throwing the same .NET-style error the source app would for a missing member.
+ * Extracts the required fields from the parsed request body, throwing the same
+ * .NET-style error the source app would for a missing member. Extraction only -
+ * credential checking is assertApiCredentials, called immediately after.
+ * @param {import('../types').ProcessRequestPayload} jObject
+ * @param {import('../config/configReader')} config
  */
 function extractRequestFields(jObject, config) {
-  const fields = {
+  return {
     actionCode: tokenToObjectString(requireToken(jObject, 'ActionCode')),
     companyNum: config.companyNum,
     viewName: tokenToObjectString(requireToken(jObject, 'ViewName')),
@@ -57,45 +39,105 @@ function extractRequestFields(jObject, config) {
     jsonReq: tokenToString(requireToken(jObject, 'JsonReq')),
     notes: tokenToObjectString(requireToken(jObject, 'Notes'))
   };
+}
 
-  if (config.apiUserName !== '' && config.apiPassword !== '') {
-    const apiUserName = fixNullString(tokenToObjectString(requireToken(jObject, 'APILogin')));
-    const apiPassword = fixNullString(tokenToObjectString(requireToken(jObject, 'APIPassword')));
-    if (!(config.apiUserName === apiUserName && config.apiPassword === apiPassword)) {
-      throw new Error(Messages.INVALID_CREDENTIALS);
-    }
+/**
+ * Verifies body credentials, but only for tenants that configure BOTH a username and
+ * a password - a tenant with just one set skips the check entirely.
+ *
+ * CALL ORDER IS CONTRACTUAL: this must run AFTER extractRequestFields, because a body
+ * missing a required member has to fail with the .NET null-reference error rather than
+ * a credentials error. Swapping the two changes which message a caller receives.
+ *
+ * @param {import('../types').ProcessRequestPayload} jObject
+ * @param {import('../config/configReader')} config
+ */
+function assertApiCredentials(jObject, config) {
+  if (config.apiUserName === '' || config.apiPassword === '') return;
+
+  const apiUserName = fixNullString(tokenToObjectString(requireToken(jObject, 'APILogin')));
+  const apiPassword = fixNullString(tokenToObjectString(requireToken(jObject, 'APIPassword')));
+
+  if (!(config.apiUserName === apiUserName && config.apiPassword === apiPassword)) {
+    throw new Error(Messages.INVALID_CREDENTIALS);
   }
-
-  return fields;
 }
 
 /**
  * Executes the full `POST /DBAPI/ProcessRequest` flow: IP gate, credential
  * check, stored-procedure dispatch, and marker logging, for an
  * already-resolved tenant `config`.
- * @param {import('../config/tenantConfig')} config
+ * @param {import('../config/configReader')} config
  * @returns {Promise<string>} the response body text
  */
-async function handleProcessRequest(config, jsonRequest, observedClientIP) {
-  if (config.enableLogging) {
-    Logger.log(`REQUEST:${Logger.getLineBreakCharacter(config.logType)}${jsonRequest}`, config);
-  }
-
+/** Enforces the tenant IP gate. Note `checkStarCondition` is true here, unlike the
+ * diagnostic view's display-only call. */
+function assertIpAllowed(config, observedClientIP) {
   if (!config.isIPWhitelisted(observedClientIP, true)) {
     throw new Error(`${Messages.BLACKLISTED_MESSAGE} [IP:${observedClientIP}]`);
   }
+}
 
-  Logger.log(`-1:${Logger.getLineBreakCharacter(config.logType)}`, config);
+/**
+ * Gated by enableLogging, unlike the numeric markers.
+ *
+ * DATA HANDLING: this writes the raw request body to the tenant audit file. For a
+ * tenant that requires body credentials, that includes APILogin and APIPassword in
+ * clear text. Preserved deliberately - redacting would change audit file contents
+ * (guardrail G6). See S-9 in CODE_QUALITY_RECOMMENDATIONS.md. Currently latent:
+ * company 101 has enableLogging=0, and the enableLogging=1 SELF block is shadowed
+ * by the wildcard tenant.
+ */
+function logInboundRequest(audit, config, jsonRequest) {
+  if (!config.enableLogging) return;
+  audit.log(`REQUEST:${audit.lineBreak}${jsonRequest}`);
+}
 
+/** Gated by enableLogging. Writes the raw body again - same disclosure as above. */
+function logExtractedFields(audit, config, jsonRequest, fields) {
+  if (!config.enableLogging) return;
+  audit.log(`jsonRequest:${audit.lineBreak}${jsonRequest}`);
+  audit.log(`ActionCode:${audit.lineBreak}${fields.actionCode}`);
+}
+
+/** Markers 1: and 2: always fire; the RESPONSE block between them does not. */
+function logOutboundResponse(audit, config, response) {
+  audit.log(`1:${audit.lineBreak}`);
+  if (config.enableLogging) {
+    audit.log(`RESPONSE:${audit.lineBreak}${response}`);
+  }
+  audit.log(`2:${audit.lineBreak}`);
+}
+
+/** C# `Replace('\n', ' ')` removes LF only, leaving any preceding CR intact. */
+function toResponseText(dbOutput) {
+  return fixNullString(dbOutput).replace(/\n/g, ' ');
+}
+
+async function handleProcessRequest(config, jsonRequest, observedClientIP) {
+  const audit = tenantAuditLog.createTenantLogger(config);
+
+  // STEP ORDER IS CONTRACTUAL. The sequence below is observable through the tenant
+  // audit file, and the numeric markers must interleave with the work exactly as
+  // they do here: REQUEST -> IP gate -> -1: -> parse -> 0: -> extract -> credentials
+  // -> jsonRequest/ActionCode -> DB -> 1: -> RESPONSE -> 2:.
+  logInboundRequest(audit, config, jsonRequest);
+
+  assertIpAllowed(config, observedClientIP);
+  audit.log(`-1:${audit.lineBreak}`);
+
+  // PRESERVED: a malformed body throws here and the V8 parser wording (e.g.
+  // "Unexpected token } in JSON at position 12") becomes the HTTP 200 response body
+  // via the controller's catch. Do NOT convert this to a 400 or wrap the message -
+  // that is a wire-contract change. See S-2 in CODE_QUALITY_RECOMMENDATIONS.md.
+  // Exact wording differs from the .NET original; MIGRATION_ANALYSIS.md notes that
+  // runtime-specific exception text cannot be byte-identical.
   const jObject = JSON.parse(jsonRequest);
-  Logger.log(`0:${Logger.getLineBreakCharacter(config.logType)}`, config);
+  audit.log(`0:${audit.lineBreak}`);
 
   const fields = extractRequestFields(jObject, config);
-
-  if (config.enableLogging) {
-    Logger.log(`jsonRequest:${Logger.getLineBreakCharacter(config.logType)}${jsonRequest}`, config);
-    Logger.log(`ActionCode:${Logger.getLineBreakCharacter(config.logType)}${fields.actionCode}`, config);
-  }
+  assertApiCredentials(jObject, config);
+  logExtractedFields(audit, config, jsonRequest, fields);
 
   const dbResult = await dbRepository.processDbRequest({
     connectionString: config.targetDBConnectionString,
@@ -104,14 +146,9 @@ async function handleProcessRequest(config, jsonRequest, observedClientIP) {
     ...fields
   });
 
-  // C# `Replace('\n', ' ')` removes LF only, leaving any preceding CR intact.
-  const response = fixNullString(dbResult.output).replace(/\n/g, ' ');
+  const response = toResponseText(dbResult.output);
 
-  Logger.log(`1:${Logger.getLineBreakCharacter(config.logType)}`, config);
-  if (config.enableLogging) {
-    Logger.log(`RESPONSE:${Logger.getLineBreakCharacter(config.logType)}${response}`, config);
-  }
-  Logger.log(`2:${Logger.getLineBreakCharacter(config.logType)}`, config);
+  logOutboundResponse(audit, config, response);
 
   return response;
 }
@@ -122,11 +159,15 @@ async function handleProcessRequest(config, jsonRequest, observedClientIP) {
  * `config.logType` below throws and the request escapes as a 500.
  */
 function logProcessRequestFailure(error, config, jsonRequest, req) {
-  Logger.log(`3:${Logger.getLineBreakCharacter(config.logType)}`, config);
-  const dummyConfig = new ConfigReader(LibraryConstants.SELF_SOURCE_WEBSITE_NAME);
+  // Dereferences `config` before any null check, deliberately - see the note above.
+  const audit = tenantAuditLog.createTenantLogger(config);
+  audit.log(`3:${audit.lineBreak}`);
+
+  const dummyConfig = createConfigReader(LibraryConstants.SELF_SOURCE_WEBSITE_NAME);
   if (dummyConfig && dummyConfig.enableLogging) {
-    Logger.log(`ERRONEOUS-REQUEST:${Logger.getLineBreakCharacter(dummyConfig.logType)}${jsonRequest}`, dummyConfig);
-    Logger.logException(error, dummyConfig, req);
+    const dummyAudit = tenantAuditLog.createTenantLogger(dummyConfig);
+    dummyAudit.log(`ERRONEOUS-REQUEST:${dummyAudit.lineBreak}${jsonRequest}`);
+    dummyAudit.logException(error, req);
   }
 }
 

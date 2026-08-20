@@ -1,0 +1,125 @@
+'use strict';
+
+const envConfig = require('./env');
+const appLogger = require('../utils/appLogger');
+
+/**
+ * Fail-fast configuration validation, run once at startup before any connection
+ * is attempted.
+ *
+ * Without this, misconfiguration failed late and silently rather than loudly:
+ * `PORT=abc` bound a random port, a misspelled STRING_RESPONSE_MODE quietly
+ * changed the wire format, and absent Oracle credentials surfaced as a driver
+ * error that named no environment variable.
+ *
+ * Every default in config/env.js is preserved - a correctly configured
+ * deployment sees no change in behavior.
+ */
+
+const STRING_RESPONSE_MODES = ['webapi', 'raw'];
+const EVENT_LOG_FALLBACKS = ['stderr', 'stdout'];
+const LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug'];
+// What the `bytes` package (used by express.text) accepts: a number of bytes, or a
+// number with a b/kb/mb/gb suffix.
+// envConfig field -> the variable name an operator actually sets.
+const POOL_ENV_NAMES = Object.freeze({
+  poolMin: 'ORACLE_POOL_MIN',
+  poolMax: 'ORACLE_POOL_MAX',
+  poolIncrement: 'ORACLE_POOL_INCREMENT',
+  poolTimeout: 'ORACLE_POOL_TIMEOUT',
+  queueTimeout: 'ORACLE_QUEUE_TIMEOUT',
+  stmtCacheSize: 'ORACLE_STMT_CACHE_SIZE'
+});
+
+const BODY_LIMIT_PATTERN = /^\d+(\.\d+)?\s*(b|kb|mb|gb|tb)?$/i;
+
+// Environment variable name -> the envConfig field it populates. Names are kept so
+// the error message points at the variable an operator actually sets.
+const ORACLE_CREDENTIALS = Object.freeze([
+  ['ORACLE_USER', 'oracleUser'],
+  ['ORACLE_PASSWORD', 'oraclePassword'],
+  ['ORACLE_CONNECTION', 'oracleConnectString']
+]);
+
+function collectProblems() {
+  const problems = [];
+
+  if (!Number.isInteger(envConfig.port) || envConfig.port < 1 || envConfig.port > 65535) {
+    problems.push(`PORT must be an integer between 1 and 65535 (received: ${envConfig.port})`);
+  }
+
+  if (!STRING_RESPONSE_MODES.includes(envConfig.stringResponseMode)) {
+    problems.push(
+      `STRING_RESPONSE_MODE must be one of ${STRING_RESPONSE_MODES.join(' | ')} ` +
+        `(received: ${envConfig.stringResponseMode || '<empty>'})`
+    );
+  }
+
+  if (!EVENT_LOG_FALLBACKS.includes(envConfig.eventLogFallback)) {
+    problems.push(
+      `EVENT_LOG_FALLBACK must be one of ${EVENT_LOG_FALLBACKS.join(' | ')} ` +
+        `(received: ${envConfig.eventLogFallback || '<empty>'})`
+    );
+  }
+
+  if (!LOG_LEVELS.includes(envConfig.logLevel)) {
+    problems.push(`LOG_LEVEL must be one of ${LOG_LEVELS.join(' | ')} (received: ${envConfig.logLevel || '<empty>'})`);
+  }
+
+  if (!BODY_LIMIT_PATTERN.test(envConfig.bodyLimit)) {
+    problems.push(
+      `BODY_LIMIT must be a byte count, optionally suffixed with b/kb/mb/gb (received: ` +
+        `${envConfig.bodyLimit || '<empty>'})`
+    );
+  }
+
+  for (const [key, value] of Object.entries(envConfig.oraclePool)) {
+    if (!Number.isInteger(value) || value < 0) {
+      problems.push(`${POOL_ENV_NAMES[key]} must be a non-negative integer (received: ${value})`);
+    }
+  }
+
+  if (!Number.isInteger(envConfig.shutdownTimeoutMs) || envConfig.shutdownTimeoutMs < 0) {
+    problems.push(`SHUTDOWN_TIMEOUT_MS must be a non-negative integer (received: ${envConfig.shutdownTimeoutMs})`);
+  }
+
+  // server.js always creates the Oracle pool at startup, so these are always required.
+  for (const [variableName, field] of ORACLE_CREDENTIALS) {
+    if (!String(envConfig[field] || '').trim()) {
+      problems.push(`${variableName} is required to create the Oracle connection pool but is empty or unset`);
+    }
+  }
+
+  return problems;
+}
+
+function emitWarnings() {
+  if (envConfig.exposeErrors) {
+    appLogger.warn(
+      'EXPOSE_ERRORS is enabled: unhandled errors will return their message and full stack trace ' +
+        'to HTTP callers, disclosing filesystem paths and module layout. Disable this in production.'
+    );
+  }
+}
+
+/**
+ * Validates the process environment. Throws a single aggregated error listing every
+ * problem, so one restart surfaces all of them rather than one per attempt.
+ * @throws {Error}
+ */
+function validateEnv() {
+  const problems = collectProblems();
+
+  if (problems.length > 0) {
+    const detail = problems.map((problem) => `  - ${problem}`).join('\n');
+    const error = new Error(`Invalid environment configuration:\n${detail}`);
+    // Tagged so the startup handler can print it as readable text rather than
+    // burying a multi-line message inside JSON metadata.
+    error.name = 'ConfigurationError';
+    throw error;
+  }
+
+  emitWarnings();
+}
+
+module.exports = { validateEnv, collectProblems };

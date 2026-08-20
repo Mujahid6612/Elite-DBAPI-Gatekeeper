@@ -1,6 +1,7 @@
 'use strict';
 
 const envConfig = require('../config/env');
+const { escapeXml } = require('./xmlText');
 
 /**
  * Reproduces ASP.NET's `[FromBody]string` binding for the historical clients.
@@ -30,15 +31,6 @@ function unwrapFromBodyString(rawBody) {
   return raw;
 }
 
-function xmlEscape(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
 /**
  * Sends a value the way classic ASP.NET Web API would send a CLR `string`
  * result through content negotiation (JsonFormatter, with text/html and
@@ -56,7 +48,7 @@ function sendWebApiString(req, res, value, status = 200) {
     return res
       .status(status)
       .type('application/xml')
-      .send(`<string xmlns="http://schemas.microsoft.com/2003/10/Serialization/">${xmlEscape(text)}</string>`);
+      .send(`<string xmlns="http://schemas.microsoft.com/2003/10/Serialization/">${escapeXml(text)}</string>`);
   }
 
   if (accept.includes('text/html')) res.type('text/html');

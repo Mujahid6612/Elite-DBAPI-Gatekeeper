@@ -1,6 +1,10 @@
 'use strict';
 
-/** Mirrors the legacy .NET DriverType enum. */
+/**
+ * Mirrors the legacy .NET DriverType enum. Retained deliberately even though no code
+ * reads it: `config.xml` still carries a <driverType> node per tenant, and this is the
+ * only record of what its values mean. Do not delete without also dropping that node.
+ */
 const DriverType = Object.freeze({ Microsoft: 0, Oracle: 1 });
 
 /** Mirrors the legacy .NET DataBaseType enum. */
@@ -11,7 +15,8 @@ const LogType = Object.freeze({ Html: 0, Text: 1, EventLog: 2 });
 
 const Messages = Object.freeze({
   BLACKLISTED_MESSAGE: 'Access Denied. You can not access the required resource because your IP is blacklisted.',
-  INVALID_CREDENTIALS: 'Access Denied. You can not access the required resource because you have provided incorrect login/password.'
+  INVALID_CREDENTIALS:
+    'Access Denied. You can not access the required resource because you have provided incorrect login/password.'
 });
 
 const LibraryConstants = Object.freeze({

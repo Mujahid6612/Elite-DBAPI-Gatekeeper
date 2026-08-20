@@ -9,7 +9,10 @@ async function getFlightView(req, res, next) {
     const response = await flightViewService.fetchFlightView(req.query);
     return sendWebApiString(req, res, response);
   } catch (error) {
-    // The source controller has no catch; let the framework return a real 500.
+    // The source controller has no catch, so failures must surface as a real 500.
+    // Express 5 already auto-forwards rejected promises from async handlers, making
+    // this wrapper redundant today; it is kept explicit so the intent is visible and
+    // so behavior survives a downgrade. Do not copy it to non-async handlers.
     return next(error);
   }
 }

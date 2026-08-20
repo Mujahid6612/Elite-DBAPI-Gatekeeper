@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const path = require('path');
-const ConfigReader = require('../config/tenantConfig');
+const ConfigReader = require('../config/configReader');
 const { decryptString, encryptString } = require('../utils/encryption');
 const { unwrapFromBodyString } = require('../utils/webApiCompat');
 const { parseAdoConnectionString } = require('../repositories/adoConnectionString');
@@ -16,7 +16,9 @@ const EXPECTED_SHA256 = [
   'dc13bc3b67256c9ca3923a8261ef694c9436216f5ac1a4231f0cad61a5c3fa32'
 ];
 
-function sha(text) { return crypto.createHash('sha256').update(text, 'utf8').digest('hex'); }
+function sha(text) {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
 
 test('legacy PasswordDeriveBytes AES decrypt matches both real project ciphertexts', () => {
   const p1 = decryptString(TENANT_CIPHER);
