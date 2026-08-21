@@ -7,8 +7,11 @@ const { sendWebApiString } = require('../utils/webApiCompat');
 async function getFlightView(req, res, next) {
   try {
     const response = await flightViewService.fetchFlightView(req.query);
+
     return sendWebApiString(req, res, response);
   } catch (error) {
+    console.log(2, error);
+
     // The source controller has no catch, so failures must surface as a real 500.
     // Express 5 already auto-forwards rejected promises from async handlers, making
     // this wrapper redundant today; it is kept explicit so the intent is visible and

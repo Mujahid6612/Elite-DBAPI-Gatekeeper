@@ -1,5 +1,6 @@
 'use strict';
 
+
 const { XMLParser } = require('fast-xml-parser');
 const envConfig = require('../config/env');
 const { fixNullString } = require('../utils/nullHelpers');
@@ -37,9 +38,16 @@ function buildUpstreamQuery(query) {
  * Fetches the upstream FlightView response, converting it to JSON only when
  * `RESP=JSON` is requested (preserving the raw XML by default).
  */
+
 async function fetchFlightView(query) {
   const param = buildUpstreamQuery(query);
-  const upstream = await fetch(envConfig.flightViewUrl + param);
+
+  const url = envConfig.flightViewUrl + param;
+
+  const upstream = await fetch(url, {
+    headers: { 'Accept-Encoding': 'identity' }
+  });
+
   if (!upstream.ok) {
     throw new Error(`Response status code does not indicate success: ${upstream.status}.`);
   }
