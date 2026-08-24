@@ -38,11 +38,28 @@ const markerFile = path.join(vendorDir, 'libclntsh.so');
 
 /**
  * Files node-oracledb never loads. Dropping them takes the tree from ~117MB to
- * ~103MB, which matters against Vercel's 250MB unzipped function ceiling:
+ * ~102MB, which matters against Vercel's 250MB unzipped function ceiling:
  *  - *.jar        the JDBC/UCP drivers, for Java callers
  *  - libocci*     the C++ interface; node-oracledb uses the C API (libclntsh)
+ *
+ * The last two patterns drop the backward-compatibility SONAME aliases
+ * (libclntsh.so.10.1 ... .20.1, libclntshcore.so.12.1 ... .20.1). They are symlinks
+ * to the single real .21.1 file and exist only for binaries linked against an older
+ * Oracle Client; nothing in this stack is. They are removed for a size reason rather
+ * than a correctness one: Vercel's includeFiles glob may DEREFERENCE symlinks when
+ * bundling, and seven aliases to an 80MB library would be copied as seven 80MB
+ * files - about 615MB, far past the ceiling. Keeping one alias each caps the worst
+ * case near 180MB.
+ *
+ * `libclntsh.so` itself must survive: it is the plain name ODPI-C dlopen()s, and it
+ * is this script's completion marker.
  */
-const PRUNE_PATTERNS = [/\.jar$/, /^libocci/];
+const PRUNE_PATTERNS = [
+  /\.jar$/,
+  /^libocci/,
+  /^libclntsh\.so\.(?!21\.1$)/,
+  /^libclntshcore\.so\.(?!21\.1$)/
+];
 
 function log(message) {
   console.log(`[vendor-oracle-client] ${message}`);
