@@ -55,7 +55,20 @@ function materializeTnsNames() {
   return directory;
 }
 
-/** Creates the shared Oracle connection pool from environment credentials. */
+/**
+ * Creates the shared Oracle connection pool from environment credentials.
+ *
+ * PREFER ensurePool() unless you specifically mean "build a pool now". This
+ * function is unconditional: it creates a pool and overwrites the module's
+ * reference to any existing one, which ABANDONS that pool along with the database
+ * sessions it holds. Calling it per request therefore leaks up to poolMax sessions
+ * every time - services/healthInfoService.js did exactly that, so every health check
+ * leaked a pool until it was switched to ensurePool().
+ *
+ * It stays unguarded because server.js legitimately calls it once at startup to
+ * fail fast on bad credentials, and the connect-options tests assert on the exact
+ * createPool call it makes.
+ */
 async function connectDB() {
   initializeOracleClient();
 
