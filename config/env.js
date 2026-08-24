@@ -42,6 +42,16 @@ function optionalInt(value) {
   return Number.parseInt(String(value), 10);
 }
 
+/**
+ * Resolves a possibly-relative path setting against the project root, preserving ''
+ * for an unset value so callers can still test it for emptiness.
+ */
+function resolveFromRoot(value) {
+  const trimmed = String(value || '').trim();
+  if (trimmed === '') return '';
+  return path.isAbsolute(trimmed) ? trimmed : path.resolve(__dirname, '..', trimmed);
+}
+
 /** Drops keys whose value is undefined, leaving only explicitly configured settings. */
 function definedOnly(object) {
   return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
@@ -89,7 +99,19 @@ const envConfig = Object.freeze({
   // Thick-mode client libraries, not tnsnames.ora. Deliberately does NOT fall back to
   // TNS_ADMIN: an Oracle Instant Client directory and a network-config directory are
   // different things, and conflating them points initOracleClient() at the wrong path.
-  oracleClientLibDir: process.env.ORACLE_CLIENT_LIB_DIR || '',
+  // A RELATIVE value is resolved against the project root, so a bundled client can be
+  // referenced as `vendor/oracle` without knowing the absolute deployment path
+  // (Vercel unpacks to /var/task, but that is an implementation detail of the
+  // platform, not something a configuration value should have to encode).
+  // An absolute path is used unchanged, which is how existing deployments set it.
+  oracleClientLibDir: resolveFromRoot(process.env.ORACLE_CLIENT_LIB_DIR),
+  // Literal TEXT of a tnsnames.ora, not a path. When set, repositories/oracleRepository.js
+  // writes it under the OS temp directory and points configDir there. This exists because
+  // `.gitignore` excludes `*.ora` and `tns/`, so a deployment built from the repository
+  // has no tnsnames.ora and cannot resolve a TNS alias. Leave blank to use a real
+  // ORACLE_CONFIG_DIR/TNS_ADMIN directory, or put the full connect descriptor straight
+  // into ORACLE_CONNECTION and skip tnsnames.ora entirely.
+  oracleTnsNames: process.env.ORACLE_TNSNAMES || '',
   /**
    * Oracle pool tuning. Only keys the operator actually set are present, so an
    * unset variable means "leave node-oracledb's default alone" rather than pinning
@@ -113,7 +135,23 @@ const envConfig = Object.freeze({
   // Threshold for the application logger (utils/appLogger.js). Does not affect the
   // per-tenant audit log, whose output is contractual.
   logLevel: (process.env.LOG_LEVEL || 'info').trim().toLowerCase(),
-  projectRoot: path.resolve(__dirname, '..')
+  projectRoot: path.resolve(__dirname, '..'),
+  /**
+   * Base directory for RELATIVE tenant logPath values (config.xml uses `~/Log`).
+   * Defaults to projectRoot, which is the historical behavior.
+   *
+   * Needed because a serverless filesystem is read-only apart from the temp
+   * directory, and the tenant audit log is NOT optional: services/processRequestService.js
+   * writes the `1:` and `2:` markers on every POST regardless of enableLogging, and
+   * utils/tenantAuditLog.js is deliberately unguarded, so an EROFS there turns a
+   * request whose database call already SUCCEEDED into a failure. Setting
+   * LOG_ROOT=/tmp moves the writes somewhere writable without altering the file
+   * layout or contents. An absolute tenant logPath still wins over this.
+   *
+   * Note the temp directory is per-instance and ephemeral: logs written there are
+   * for debugging a live instance, not durable audit retention.
+   */
+  logRoot: process.env.LOG_ROOT || path.resolve(__dirname, '..')
 });
 
 module.exports = envConfig;

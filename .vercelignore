@@ -1,0 +1,11 @@
+Log/
+test/
+*.md
+.env.bak.*
+
+# NOTE: scripts/ must NOT be ignored - vercel.json's buildCommand runs
+# scripts/vendor-oracle-client.js, which cannot happen if the file is not uploaded.
+
+# Downloaded during the build by scripts/vendor-oracle-client.js (~102MB), then
+# bundled into the function via the includeFiles glob. No need to upload it.
+vendor/oracle/

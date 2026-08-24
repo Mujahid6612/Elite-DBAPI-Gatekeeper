@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const oracledb = require('oracledb');
 const envConfig = require('../config/env');
 const appLogger = require('../utils/appLogger');
@@ -7,13 +10,62 @@ const { fixNullString } = require('../utils/nullHelpers');
 const { STORED_PROC_PARAMS, INPUT_PARAMS, RESPONSE_PARAM } = require('./storedProcContract');
 
 let oraclePool = null;
+let oracleClientInitialized = false;
+
+/**
+ * node-oracledb runs in Thin mode by default and needs no Oracle Client libraries.
+ * Thick mode is opt-in via ORACLE_THICK_MODE, with ORACLE_CLIENT_LIB_DIR pointing at
+ * the client install. Called from connectDB() rather than at module load so that
+ * importing this module stays side-effect free (and testable on any platform).
+ *
+ * RESTORED (CQ-01): commit ace5004 replaced this with an unconditional
+ * initOracleClient() call as a local workaround, which forced Thick mode regardless
+ * of the flag. That cannot work on a host with no Instant Client - notably a Vercel
+ * function, where it fails with DPI-1047 on the first request - and it silently
+ * contradicted the documented meaning of ORACLE_THICK_MODE.
+ */
+function initializeOracleClient() {
+  if (oracleClientInitialized || !envConfig.oracleThickMode) return;
+
+  const options = {};
+  if (envConfig.oracleClientLibDir) options.libDir = envConfig.oracleClientLibDir;
+  oracledb.initOracleClient(options);
+  oracleClientInitialized = true;
+}
+
+/**
+ * Materializes a tnsnames.ora supplied through the environment and returns the
+ * directory holding it, or '' when ORACLE_TNSNAMES is unset.
+ *
+ * `.gitignore` excludes `*.ora` and `tns/`, so the checked-in repository has no
+ * tnsnames.ora and a deployment resolving a TNS ALIAS (ORACLE_CONNECTION=WebDev2023Wan)
+ * fails with ORA-12154. Supplying the file's text as ORACLE_TNSNAMES keeps the alias
+ * working without committing the network topology. The alternative - putting the full
+ * connect descriptor directly in ORACLE_CONNECTION - also works and needs no file.
+ *
+ * Written under the OS temp directory because a serverless filesystem is read-only
+ * everywhere else.
+ */
+function materializeTnsNames() {
+  if (!envConfig.oracleTnsNames) return '';
+
+  const directory = path.join(os.tmpdir(), 'oracle-net');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'tnsnames.ora'), envConfig.oracleTnsNames, 'utf8');
+  return directory;
+}
 
 /** Creates the shared Oracle connection pool from environment credentials. */
-
 async function connectDB() {
-  oracledb.initOracleClient({
-    libDir: envConfig.oracleClientLibDir
-});
+  initializeOracleClient();
+
+  const configDir = materializeTnsNames() || envConfig.oracleConfigDir;
+
+  if (configDir) {
+    // The Oracle client also reads TNS_ADMIN out-of-band (Thick mode, and
+    // node-oracledb's own fallback), so the process variable is still exported.
+    process.env.TNS_ADMIN = configDir;
+  }
 
   oraclePool = await oracledb.createPool({
     user: envConfig.oracleUser,
@@ -23,7 +75,7 @@ async function connectDB() {
     // `process.env.TNS_ADMIN` read: node-oracledb resolves this internally as
     // `options.configDir || process.env.TNS_ADMIN || ''`, so an empty string and
     // undefined take the same path (see lib/impl/parserHelpers.js).
-    configDir: envConfig.oracleConfigDir || undefined,
+    configDir: configDir || undefined,
     // Only explicitly configured tuning keys appear here; with none set this spread
     // adds nothing and the driver's own defaults apply, exactly as before.
     ...envConfig.oraclePool
@@ -54,6 +106,36 @@ function getPool() {
     throw new Error('Oracle pool has not been initialized.');
   }
   return oraclePool;
+}
+
+/**
+ * In-flight connectDB() promise, so concurrent first requests share one pool
+ * creation instead of racing to build several and leaking all but the last.
+ */
+let poolCreation = null;
+
+/**
+ * Returns the pool, creating it on first use.
+ *
+ * server.js still calls connectDB() explicitly at startup, so a long-running process
+ * behaves exactly as before and this is a no-op on every request. It exists for the
+ * serverless entrypoint (api/index.js), where there is no startup hook to create the
+ * pool in: without it the first request to a cold instance fails with
+ * "Oracle pool has not been initialized."
+ *
+ * A failed attempt is not cached - `poolCreation` is cleared - so a request arriving
+ * after a transient database outage retries rather than being served a stale
+ * rejection for the life of the instance.
+ */
+async function ensurePool() {
+  if (oraclePool) return oraclePool;
+
+  if (!poolCreation) {
+    poolCreation = connectDB().finally(() => {
+      poolCreation = null;
+    });
+  }
+  return poolCreation;
 }
 
 /** Reads Oracle CLOB/LOB output values into plain strings. */
@@ -144,7 +226,9 @@ function buildBinds(args) {
  * @returns {Promise<import('../types').StoredProcResult>}
  */
 async function execute(procName, args) {
-  const pool = getPool();
+  // ensurePool() rather than getPool(): identical once server.js has run, but on a
+  // serverless cold start this is where the pool actually gets created.
+  const pool = await ensurePool();
   const connection = await pool.getConnection();
 
   try {
@@ -183,10 +267,11 @@ async function verifyConnectable() {
 
 module.exports = {
   connectDB,
+  ensurePool,
   getPool,
   closePool,
   execute,
   readLob,
   verifyConnectable,
-
+  initializeOracleClient
 };

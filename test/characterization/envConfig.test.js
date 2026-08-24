@@ -41,11 +41,18 @@ function loadEnvConfig(env) {
 }
 
 test('defaults apply when nothing is set', () => {
+  // Every variable asserted below must appear here. Anything omitted is simply absent
+  // from the child's environment, which lets dotenv load the DEVELOPER'S OWN .env and
+  // silently turns this into a test of that file rather than of the defaults - the
+  // boolean cases passed only because the local .env happened to agree with them.
   const config = loadEnvConfig({
     PORT: '',
     STRING_RESPONSE_MODE: '',
     FLIGHTVIEW_URL: '',
-    EVENT_LOG_FALLBACK: ''
+    EVENT_LOG_FALLBACK: '',
+    TRUST_PROXY: '',
+    EXPOSE_ERRORS: '',
+    ORACLE_THICK_MODE: ''
   });
   assert.equal(config.port, 5000);
   assert.equal(config.stringResponseMode, 'webapi');

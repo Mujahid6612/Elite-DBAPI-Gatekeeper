@@ -4,3 +4,14 @@ npm-debug.log*
 Log/*
 !Log/.gitkeep
 .DS_Store
+
+# Oracle network config: contains internal host/port topology
+*.ora
+tns/
+
+# Timestamped .env backups: these contain live Oracle credentials
+.env.bak.*
+
+# Oracle Instant Client is downloaded at build time by scripts/vendor-oracle-client.js.
+# vendor/lib/libaio.so.1 IS committed (16KB) and must stay tracked.
+vendor/oracle/

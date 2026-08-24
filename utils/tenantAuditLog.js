@@ -63,7 +63,11 @@ function resolveTenantLogFile(config, date = new Date()) {
   if (configured.startsWith('~/')) configured = configured.slice(2);
   else if (configured.startsWith('~\\')) configured = configured.slice(2);
 
-  const root = path.isAbsolute(configured) ? configured : path.join(envConfig.projectRoot, configured);
+  // A relative tenant logPath resolves against LOG_ROOT, which defaults to projectRoot
+  // and so is unchanged for a normal deployment. It is overridable because a read-only
+  // deployment filesystem (Vercel) cannot host the log tree under the project directory.
+  // An absolute logPath is still used verbatim.
+  const root = path.isAbsolute(configured) ? configured : path.join(envConfig.logRoot, configured);
   const ext = profileFor(config.logType).extension;
   return path.join(root, config.companyNum, String(date.getFullYear()), `${dateFileName(date)}${ext}`);
 }
