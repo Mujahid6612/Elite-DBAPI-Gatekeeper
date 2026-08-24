@@ -101,6 +101,27 @@ function ensureDirectory(directory) {
  * take the API down. Making it tolerant would change which requests fail - see S-10
  * in CODE_QUALITY_RECOMMENDATIONS.md.
  */
+/**
+ * Mirrors an audit entry to stdout, in addition to the file.
+ *
+ * A file is the wrong sink on a serverless host: LOG_ROOT points at the temp
+ * directory (the only writable path), which is per-instance and destroyed when the
+ * instance recycles, with no way to read it. Emitting the same entry to stdout puts
+ * it in the platform's log stream, where it can be viewed live and forwarded to a
+ * log drain for retention.
+ *
+ * The FILE remains the contractual artifact and is written exactly as before - this
+ * is purely additive. Entries carry an `[audit]` prefix and the tenant's company
+ * number so they can be picked out of interleaved platform output, and newlines are
+ * collapsed so one entry stays one log record rather than being split into several
+ * by the platform's line-oriented collector.
+ */
+function echoToStdout(message, config) {
+  if (!envConfig.auditLogStdout) return;
+  const oneLine = String(message).replace(/\r?\n/g, ' ');
+  console.log(`[audit][company=${config.companyNum}] ${oneLine}`);
+}
+
 function writeTenant(message, config) {
   if (profileFor(config.logType).sink === 'console') {
     // Send event log messages to the console when no event log is available.
@@ -108,6 +129,8 @@ function writeTenant(message, config) {
     else console.error(message);
     return;
   }
+
+  echoToStdout(message, config);
 
   const filename = resolveTenantLogFile(config);
   // Create the tenant log folder when it does not exist yet.

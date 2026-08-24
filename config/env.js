@@ -132,6 +132,11 @@ const envConfig = Object.freeze({
   // How long a graceful shutdown may take before the process is forced to exit.
   shutdownTimeoutMs: optionalInt(process.env.SHUTDOWN_TIMEOUT_MS) ?? 15000,
   eventLogFallback: (process.env.EVENT_LOG_FALLBACK || 'stderr').trim().toLowerCase(),
+  // Mirror every tenant audit entry to stdout as well as to its file. Defaults ON:
+  // on a serverless host the file lives in an ephemeral per-instance temp directory
+  // that nobody can read, so stdout is the only sink that actually reaches an
+  // operator. The file is still written either way - this is purely additive.
+  auditLogStdout: toBoolean(process.env.AUDIT_LOG_STDOUT, true),
   // Threshold for the application logger (utils/appLogger.js). Does not affect the
   // per-tenant audit log, whose output is contractual.
   logLevel: (process.env.LOG_LEVEL || 'info').trim().toLowerCase(),

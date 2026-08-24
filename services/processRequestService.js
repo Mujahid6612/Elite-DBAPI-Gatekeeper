@@ -5,6 +5,7 @@ const tenantAuditLog = require('../utils/tenantAuditLog');
 const dbRepository = require('../repositories/dbRepository');
 const { Messages, LibraryConstants } = require('../constants');
 const { fixNullString } = require('../utils/nullHelpers');
+const { redactSecrets } = require('../utils/logRedaction');
 const { requireToken, tokenToObjectString, tokenToString } = require('../parsers/requestTokenParser');
 const { renderDiagnosticSummary } = require('./diagnosticSummaryView');
 
@@ -81,22 +82,26 @@ function assertIpAllowed(config, observedClientIP) {
 /**
  * Gated by enableLogging, unlike the numeric markers.
  *
- * DATA HANDLING: this writes the raw request body to the tenant audit file. For a
- * tenant that requires body credentials, that includes APILogin and APIPassword in
- * clear text. Preserved deliberately - redacting would change audit file contents
- * (guardrail G6). See S-9 in CODE_QUALITY_RECOMMENDATIONS.md. Currently latent:
- * company 101 has enableLogging=0, and the enableLogging=1 SELF block is shadowed
- * by the wildcard tenant.
+ * DATA HANDLING: this writes the request body to the tenant audit file, with
+ * `APIPassword` masked by utils/logRedaction.js. `APILogin` is kept, because
+ * identifying the caller is the purpose of an audit record.
+ *
+ * The masking is a deliberate departure from source parity (guardrail G6, S-9):
+ * the .NET original wrote the body untouched. That was tolerable only while this
+ * path was dead - company 101 had enableLogging=0 and the enableLogging=1 SELF
+ * block was shadowed by the wildcard tenant, so nothing was ever written. Both are
+ * now fixed, which turns "no requests logged" into "every request logged", and
+ * writing a live credential to disk on every call is not an acceptable default.
  */
 function logInboundRequest(audit, config, jsonRequest) {
   if (!config.enableLogging) return;
-  audit.log(`REQUEST:${audit.lineBreak}${jsonRequest}`);
+  audit.log(`REQUEST:${audit.lineBreak}${redactSecrets(jsonRequest)}`);
 }
 
-/** Gated by enableLogging. Writes the raw body again - same disclosure as above. */
+/** Gated by enableLogging. Writes the body again - same redaction applies. */
 function logExtractedFields(audit, config, jsonRequest, fields) {
   if (!config.enableLogging) return;
-  audit.log(`jsonRequest:${audit.lineBreak}${jsonRequest}`);
+  audit.log(`jsonRequest:${audit.lineBreak}${redactSecrets(jsonRequest)}`);
   audit.log(`ActionCode:${audit.lineBreak}${fields.actionCode}`);
 }
 
@@ -166,7 +171,7 @@ function logProcessRequestFailure(error, config, jsonRequest, req) {
   const dummyConfig = createConfigReader(LibraryConstants.SELF_SOURCE_WEBSITE_NAME);
   if (dummyConfig && dummyConfig.enableLogging) {
     const dummyAudit = tenantAuditLog.createTenantLogger(dummyConfig);
-    dummyAudit.log(`ERRONEOUS-REQUEST:${dummyAudit.lineBreak}${jsonRequest}`);
+    dummyAudit.log(`ERRONEOUS-REQUEST:${dummyAudit.lineBreak}${redactSecrets(jsonRequest)}`);
     dummyAudit.logException(error, req);
   }
 }

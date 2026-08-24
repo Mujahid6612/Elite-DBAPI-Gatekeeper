@@ -29,13 +29,30 @@ test('legacy PasswordDeriveBytes AES decrypt matches both real project ciphertex
   assert.equal(encryptString(p2), WEBCONFIG_CIPHER);
 });
 
-test('ConfigReader reloads and wildcard tenant is first match even for SELF', () => {
+test('SELF resolves to its own tenant, and everything else to the wildcard', () => {
+  // CHANGED DELIBERATELY. config.xml used to list the wildcard block first, so `*`
+  // matched before the explicit SELF block and `new ConfigReader('SELF')` returned
+  // company 101 with enableLogging=0. That shadowing made the exception-report path
+  // in processRequestService.logProcessRequestFailure permanently dead: the `3:`
+  // marker fired, but ERRONEOUS-REQUEST and the stack trace were never written,
+  // because they are gated on the SELF tenant's enableLogging.
+  //
+  // The blocks are now ordered SELF first. First-match-wins is unchanged and is
+  // still pinned by test/characterization/configReader.test.js against synthetic
+  // configs in BOTH orders; only the ordering of the real config.xml moved.
   const configPath = path.join(__dirname, '..', 'config.xml');
   const normal = new ConfigReader('anything.example', { configPath });
   const self = new ConfigReader('SELF', { configPath });
+
+  // Ordinary traffic is unaffected: it matches no explicit tenant and falls through
+  // to the wildcard, exactly as before.
   assert.equal(normal.companyNum, '101');
-  assert.equal(self.companyNum, '101');
-  assert.equal(self.sourceWebsite, '*');
+  assert.equal(normal.sourceWebsite, '*');
+
+  // SELF now reaches its own block, which is what revives exception logging.
+  assert.equal(self.companyNum, '999');
+  assert.equal(self.sourceWebsite, 'SELF');
+  assert.equal(self.enableLogging, true);
 });
 
 test('star whitelist permits callers when blacklist list is empty', () => {
