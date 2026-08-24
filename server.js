@@ -6,6 +6,7 @@ const sqlServerRepository = require('./repositories/sqlServerRepository');
 const envConfig = require('./config/env');
 const { validateEnv } = require('./config/validateEnv');
 const appLogger = require('./utils/appLogger');
+const { saveApplicationStartTime } = require('./utils/appStartTime');
 
 /** Set once shutdown begins, so a second signal does not start a second drain. */
 let shuttingDown = false;
@@ -101,6 +102,7 @@ async function startServer() {
     // applied, so it was removed rather than silently changing the bind behavior.
     const server = app.listen(envConfig.port, () => {
       appLogger.info(`Server is running on port ${envConfig.port}`);
+      saveApplicationStartTime();
     });
 
     for (const signal of ['SIGTERM', 'SIGINT']) {

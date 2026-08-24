@@ -60,12 +60,12 @@ async function connectDB() {
   initializeOracleClient();
 
   const configDir = materializeTnsNames() || envConfig.oracleConfigDir;
-
   if (configDir) {
     // The Oracle client also reads TNS_ADMIN out-of-band (Thick mode, and
     // node-oracledb's own fallback), so the process variable is still exported.
     process.env.TNS_ADMIN = configDir;
   }
+
 
   oraclePool = await oracledb.createPool({
     user: envConfig.oracleUser,
@@ -75,7 +75,7 @@ async function connectDB() {
     // `process.env.TNS_ADMIN` read: node-oracledb resolves this internally as
     // `options.configDir || process.env.TNS_ADMIN || ''`, so an empty string and
     // undefined take the same path (see lib/impl/parserHelpers.js).
-    configDir: configDir || undefined,
+    configDir: configDir || undefined ,
     // Only explicitly configured tuning keys appear here; with none set this spread
     // adds nothing and the driver's own defaults apply, exactly as before.
     ...envConfig.oraclePool

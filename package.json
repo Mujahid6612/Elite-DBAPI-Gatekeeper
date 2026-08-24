@@ -51,5 +51,11 @@
       "optional": true
     }
   },
-  "private": true
+  "private": true,
+  "nodemonConfig": {
+    "ignore": [
+      "status/*",
+      "logs/*"
+    ]
+  }
 }
