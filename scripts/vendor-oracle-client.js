@@ -75,16 +75,59 @@ function unzip(archive, intoDir) {
   }
 }
 
+/**
+ * Recursively copies `src` into `dest`, rewriting any symlink so its target is
+ * relative to its own directory instead of carrying over the path it had under
+ * `srcRoot`.
+ *
+ * Two problems forced this instead of `fs.cpSync(src, dest, { recursive: true })`:
+ *
+ * 1. `fs.cpSync` is flagged experimental below Node 22.3 (`engines` here pins
+ *    >=20.0.0), so eslint's node-builtins rule rejects it outright.
+ * 2. More importantly, `cpSync` preserves a symlink's target VERBATIM. The
+ *    versioned files here (`libclntsh.so.21.1` etc.) are real; the unversioned
+ *    names (`libclntsh.so`) are symlinks to them, and after extraction those
+ *    symlinks resolve through the OS temp directory the archive was unzipped
+ *    into. `main()` deletes that temp directory once this script finishes -
+ *    a straight `cpSync` copy leaves `vendor/oracle/libclntsh.so` dangling from
+ *    that moment on, which is silent at build time and only surfaces as
+ *    DPI-1047 at runtime. Rewriting each symlink to point at its sibling by
+ *    filename keeps the tree correct independent of where it was built.
+ */
+function copyTree(src, dest, srcRoot, destRoot) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+
+    if (entry.isSymbolicLink()) {
+      const rawTarget = fs.readlinkSync(srcPath);
+      const absoluteTarget = path.resolve(path.dirname(srcPath), rawTarget);
+      // destRoot, not dest: dest is the CURRENT directory being written, which
+      // shifts on every recursive call and would misplace the rebuilt target for
+      // anything not at the top level.
+      const newAbsoluteTarget = path.join(destRoot, path.relative(srcRoot, absoluteTarget));
+      fs.symlinkSync(path.relative(path.dirname(destPath), newAbsoluteTarget), destPath);
+    } else if (entry.isDirectory()) {
+      copyTree(srcPath, destPath, srcRoot, destRoot);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
 /** The archive unpacks to `instantclient_21_13/`; flatten that into vendor/oracle/. */
 function flatten(extractDir) {
   // isDirectory() is load-bearing: the downloaded archive lives in this same temp
   // directory and its name also begins with "instantclient", so a name-only match
-  // renames the zip file into place and every later step fails with ENOTDIR.
+  // picks up the zip file and every later step fails.
   const inner = fs
     .readdirSync(extractDir, { withFileTypes: true })
     .find((entry) => entry.isDirectory() && entry.name.startsWith('instantclient'));
   if (!inner) throw new Error(`no instantclient_* directory inside the archive at ${extractDir}`);
-  fs.renameSync(path.join(extractDir, inner.name), vendorDir);
+
+  const innerDir = path.join(extractDir, inner.name);
+  copyTree(innerDir, vendorDir, innerDir, vendorDir);
 }
 
 function prune() {
