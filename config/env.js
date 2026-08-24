@@ -137,6 +137,11 @@ const envConfig = Object.freeze({
   // that nobody can read, so stdout is the only sink that actually reaches an
   // operator. The file is still written either way - this is purely additive.
   auditLogStdout: toBoolean(process.env.AUDIT_LOG_STDOUT, true),
+  // Emit one ACCESS entry per request with status code, duration and client IP.
+  // Separate from the tenant's enableLogging, which governs request/response
+  // BODIES: this records no payload, so it is safe to leave on when body
+  // logging is off, and it is the only record for routes outside ProcessRequest.
+  auditAccessLog: toBoolean(process.env.AUDIT_ACCESS_LOG, true),
   // Threshold for the application logger (utils/appLogger.js). Does not affect the
   // per-tenant audit log, whose output is contractual.
   logLevel: (process.env.LOG_LEVEL || 'info').trim().toLowerCase(),

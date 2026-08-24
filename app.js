@@ -6,6 +6,7 @@ const envConfig = require('./config/env');
 const corsOptions = require('./middleware/corsPolicy');
 const notFoundHandler = require('./middleware/notFoundHandler');
 const errorHandler = require('./middleware/errorHandler');
+const accessLog = require('./middleware/accessLog');
 const routes = require('./routes');
 
 const app = express();
@@ -25,6 +26,10 @@ app.use(cors(corsOptions));
 // denial-of-service control; it is configurable via BODY_LIMIT, defaulting to the
 // original 2mb.
 app.use(express.text({ type: '*/*', limit: envConfig.bodyLimit }));
+
+// Access logging wraps the routes so it also observes 404s and error responses.
+// It only hooks res 'finish', so it adds no work to the request path itself.
+app.use(accessLog);
 
 // Register API routes before the standard error responses.
 app.use(routes);

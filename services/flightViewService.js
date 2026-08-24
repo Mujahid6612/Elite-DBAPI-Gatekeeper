@@ -39,10 +39,19 @@ function buildUpstreamQuery(query) {
  * `RESP=JSON` is requested (preserving the raw XML by default).
  */
 
-async function fetchFlightView(query) {
-  const param = buildUpstreamQuery(query);
+/**
+ * The exact upstream URL a given query resolves to.
+ *
+ * Exported so the controller can record it in the audit log without duplicating the
+ * parameter-building rules. Diagnosing a FlightView problem almost always starts
+ * with "what did we actually ask upstream?", and previously nothing recorded it.
+ */
+function buildUpstreamUrl(query) {
+  return envConfig.flightViewUrl + buildUpstreamQuery(query);
+}
 
-  const url = envConfig.flightViewUrl + param;
+async function fetchFlightView(query) {
+  const url = buildUpstreamUrl(query);
 
   const upstream = await fetch(url, {
     headers: { 'Accept-Encoding': 'identity' }
@@ -61,4 +70,4 @@ async function fetchFlightView(query) {
   return body;
 }
 
-module.exports = { fetchFlightView };
+module.exports = { fetchFlightView, buildUpstreamUrl };
