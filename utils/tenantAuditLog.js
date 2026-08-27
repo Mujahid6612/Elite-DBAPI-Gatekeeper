@@ -17,6 +17,7 @@ const os = require('os');
 const path = require('path');
 const { LogType } = require('../constants');
 const envConfig = require('../config/env');
+const appLogger = require('./appLogger');
 
 const BORDER = '=====================================================================================';
 const SEPARATOR = '-------------------------------------------------------------------------------------';
@@ -94,12 +95,22 @@ function ensureDirectory(directory) {
 /**
  * Writes one framed message to the tenant's sink.
  *
- * OPERATIONAL HAZARD, preserved deliberately: this is synchronous and unguarded, so a
- * full disk or a permissions problem on the log directory throws. On the POST path
- * that turns a request which had already SUCCEEDED into a failure, and a throw from
- * the error-logging path escalates to a framework 500. In other words, logging can
- * take the API down. Making it tolerant would change which requests fail - see S-10
- * in CODE_QUALITY_RECOMMENDATIONS.md.
+ * FIXED (was S-10): this used to be synchronous AND unguarded, so a full disk, a
+ * read-only filesystem or a permissions problem on the log directory threw straight
+ * into the request pipeline. On the POST path that turned a request whose database
+ * call had already SUCCEEDED into a failure, and a throw from the error-logging path
+ * escalated to a framework 500 - logging could take the API down. The hazard is not
+ * hypothetical on the serverless deployment, where everything outside the temp
+ * directory is read-only and an unset LOG_ROOT yields EROFS on the very first write.
+ *
+ * The file write is now best-effort. Ordering matters and is deliberate:
+ * `echoToStdout` runs BEFORE the file write, so when the file sink is unavailable the
+ * audit record still reaches the platform log stream rather than being lost. A
+ * failure is reported once via appLogger and then swallowed.
+ *
+ * The FILE remains the contractual artifact whenever it is writable - framing, byte
+ * layout and ordering are unchanged (guardrail G6). Only the failure MODE changed:
+ * the log no longer decides whether the request succeeds.
  */
 /**
  * Mirrors an audit entry to stdout, in addition to the file.
@@ -130,12 +141,25 @@ function writeTenant(message, config) {
     return;
   }
 
+  // First, so the record survives even when the file sink below is unavailable.
   echoToStdout(message, config);
 
   const filename = resolveTenantLogFile(config);
-  // Create the tenant log folder when it does not exist yet.
-  ensureDirectory(path.dirname(filename));
-  fs.appendFileSync(filename, `${message}${os.EOL}`, 'utf8');
+  try {
+    // Create the tenant log folder when it does not exist yet.
+    ensureDirectory(path.dirname(filename));
+    fs.appendFileSync(filename, `${message}${os.EOL}`, 'utf8');
+  } catch (error) {
+    // Never propagate: a logging failure must not decide whether the request that
+    // triggered it succeeds. `ensuredDirectories` only records SUCCESSFUL creations,
+    // so a transient cause is retried on the next write rather than being memoized.
+    appLogger.warn('Tenant audit log write failed; entry kept on stdout only', {
+      file: filename,
+      company: config && config.companyNum,
+      message: error && error.message,
+      code: error && error.code
+    });
+  }
 }
 
 function log(textToWrite, config) {

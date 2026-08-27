@@ -23,10 +23,25 @@ const CONNECTION_STRING_CIPHER = Object.freeze({
  * Selects the first `<appSettings>` block whose comma-separated `sourceWebsite` list
  * contains `source`, or the literal `*`.
  *
- * FIRST MATCH WINS, including `*`. With the supplied config.xml the wildcard block is
- * listed first, so it shadows the later explicit `SELF` block - `new ConfigReader('SELF')`
- * resolves to company 101, not 999. That is preserved deliberately; reordering the file
- * or preferring exact matches would be a functional change.
+ * FIRST MATCH WINS, including `*`. A wildcard block therefore SHADOWS every explicit
+ * block listed after it, so the ORDER of blocks in config.xml is load-bearing:
+ * ordering is the only thing that decides which tenant an incoming host resolves to.
+ * Exact matches are deliberately NOT preferred over `*`; changing that would be a
+ * functional change.
+ *
+ * With the config.xml currently shipped, `SELF` (company 999) is listed FIRST and the
+ * wildcard block (company 101) second, so:
+ *
+ *   'SELF'      -> company 999   (the diagnostics/error tenant, logType 1, .txt)
+ *   anything else -> company 101 (Elite DBAPI, logType 0, .html)
+ *
+ * NOTE: MIGRATION_ANALYSIS.md section 5 and earlier revisions of this comment
+ * described the OPPOSITE ordering - wildcard first, shadowing SELF so that
+ * `new ConfigReader('SELF')` resolved to 101. That was true of the original .NET
+ * config.xml but is no longer true of the file in this repository; the blocks were
+ * reordered. Both orderings are covered by test/characterization/configReader.test.js,
+ * which uses its own fixtures, which is why neither the tests nor the suite caught the
+ * drift.
  */
 function selectTenantBlock(blocks, source) {
   for (const block of blocks) {

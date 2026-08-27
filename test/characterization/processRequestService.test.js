@@ -176,6 +176,77 @@ test('credentials are checked only when BOTH tenant username and password are se
   assert.equal(right.response, 'DB-OUT');
 });
 
+test('credentials are also accepted inside JsonReq.JHeader, where the app actually puts them', async () => {
+  // FIX, not parity: the check used to read the TOP LEVEL only, while the EliteApp
+  // client sends these inside JsonReq.JHeader (src/Services/apiService.ts). Enabling
+  // tenant credentials would therefore have rejected every real request with the
+  // null-reference error. Top-level placement still works and is asserted above.
+  const withCreds = { apiUserName: 'u', apiPassword: 'p' };
+  const nested = (header) =>
+    JSON.stringify({
+      ActionCode: 'A1',
+      ViewName: 'V1',
+      ClientIP: '9.9.9.9',
+      JsonReq: { JHeader: header, JData: {} },
+      Notes: 'N1'
+    });
+
+  const right = await runRequest(withCreds, nested({ APILogin: 'u', APIPassword: 'p' }));
+  assert.equal(right.error, null, 'matching nested credentials must authenticate');
+  assert.equal(right.response, 'DB-OUT');
+
+  const wrong = await runRequest(withCreds, nested({ APILogin: 'u', APIPassword: 'WRONG' }));
+  assert.equal(wrong.error.message, Messages.INVALID_CREDENTIALS, 'a wrong nested password is still rejected');
+});
+
+test('a JsonReq sent as a JSON string still exposes its JHeader credentials', async () => {
+  const withCreds = { apiUserName: 'u', apiPassword: 'p' };
+  const body = JSON.stringify({
+    ActionCode: 'A1',
+    ViewName: 'V1',
+    ClientIP: '9.9.9.9',
+    JsonReq: JSON.stringify({ JHeader: { APILogin: 'u', APIPassword: 'p' } }),
+    Notes: 'N1'
+  });
+
+  const { error, response } = await runRequest(withCreds, body);
+  assert.equal(error, null);
+  assert.equal(response, 'DB-OUT');
+});
+
+test('an unparseable JsonReq still yields the null-reference error, not a parser error', async () => {
+  // The credential lookup must not convert a malformed JsonReq into a different
+  // failure: absent credentials still report the original .NET message.
+  const withCreds = { apiUserName: 'u', apiPassword: 'p' };
+  const body = JSON.stringify({
+    ActionCode: 'A1',
+    ViewName: 'V1',
+    ClientIP: '9.9.9.9',
+    JsonReq: '{not json',
+    Notes: 'N1'
+  });
+
+  const { error } = await runRequest(withCreds, body);
+  assert.equal(error.message, 'Object reference not set to an instance of an object.');
+});
+
+test('top-level credentials still win over a nested pair', async () => {
+  const withCreds = { apiUserName: 'u', apiPassword: 'p' };
+  const body = JSON.stringify({
+    ActionCode: 'A1',
+    ViewName: 'V1',
+    ClientIP: '9.9.9.9',
+    JsonReq: { JHeader: { APILogin: 'u', APIPassword: 'WRONG' } },
+    Notes: 'N1',
+    APILogin: 'u',
+    APIPassword: 'p'
+  });
+
+  const { error, response } = await runRequest(withCreds, body);
+  assert.equal(error, null, 'the top-level pair is authoritative');
+  assert.equal(response, 'DB-OUT');
+});
+
 test('a tenant with only a username configured skips the credential check entirely', async () => {
   const { error, response } = await runRequest({ apiUserName: 'u', apiPassword: '' }, VALID_BODY);
   assert.equal(error, null);

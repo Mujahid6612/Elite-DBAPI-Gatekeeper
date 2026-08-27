@@ -5,30 +5,49 @@ function dotNetBool(value) {
   return value ? 'True' : 'False';
 }
 
+/** Written in place of a secret value that is configured but must not be disclosed. */
+const REDACTED = '***REDACTED***';
+
+/**
+ * Reports whether a secret is set without revealing it: an unset value still renders
+ * as an empty field, so an operator can still tell "not configured" from "configured",
+ * which is the only diagnostic signal these two lines ever legitimately carried.
+ */
+function maskSecret(value) {
+  return String(value ?? '') === '' ? '' : REDACTED;
+}
+
 /**
  * Renders the diagnostic response body for `GET /DBAPI/ProcessRequest/:id`.
  *
- * SECURITY: this output includes the tenant's DECRYPTED connection string and API
- * password, disclosed to any caller that clears the IP gate. Preserved deliberately -
- * see MIGRATION_ANALYSIS.md. Every secret-bearing line is in this one file so that
- * redacting them later is a single, reviewable change.
+ * SECURITY, CHANGED FROM SOURCE PARITY (was S-1/G3): the .NET original printed the
+ * tenant's DECRYPTED connection string and API password here in clear text, to any
+ * caller that cleared the IP gate. Both supplied tenants set `whitelistedIPs=*`, so
+ * on the public deployment that gate admits everyone and this endpoint handed out
+ * live database credentials to anonymous callers. The two secret-bearing values are
+ * now masked by `maskSecret`.
+ *
+ * Everything else is untouched: label text, order, the `<br /><br />` framing and the
+ * lone space inside '<br /><br /> <hr />' are all still byte-for-byte as before, so
+ * the response layout and any parser reading it keep working. `targetDBConnectionString`
+ * is still READ rather than skipped, so a tenant whose ciphertext no longer decrypts
+ * still fails here exactly as it used to instead of silently reporting healthy.
  *
  * Presentation markup lives here rather than in the service so that services/ stays
- * free of HTML. The exact fragments, including the lone space inside
- * '<br /><br /> <hr />', are part of the response body and are asserted by tests.
+ * free of HTML.
  */
 function renderDiagnosticSummary(config, clientIP, host) {
   return [
     'Welcome to LCOM Web API.',
     `<br /><br />Source Website: ${config.sourceWebsite}`,
     `<br /><br />Project Name: ${config.projectName}`,
-    `<br /><br />Target DB Connection String: ${config.targetDBConnectionString}`,
+    `<br /><br />Target DB Connection String: ${maskSecret(config.targetDBConnectionString)}`,
     `<br /><br />Company Num: ${config.companyNum}`,
     `<br /><br />Whitelisted IPs: ${config.whitelistedIPs}`,
     `<br /><br />Blacklisted IPs: ${config.blacklistedIPs}`,
     `<br /><br />Enable Logging: ${dotNetBool(config.enableLogging)}`,
     `<br /><br />API Username: ${config.apiUserName}`,
-    `<br /><br />API Password: ${config.apiPassword}`,
+    `<br /><br />API Password: ${maskSecret(config.apiPassword)}`,
     '<br /><br /> <hr />',
     `<br /><br />User IP Address: ${clientIP}`,
     `<br /><br />Client Website: ${host}`,
@@ -40,4 +59,4 @@ function renderDiagnosticSummary(config, clientIP, host) {
   ].join('');
 }
 
-module.exports = { renderDiagnosticSummary, dotNetBool };
+module.exports = { renderDiagnosticSummary, dotNetBool, maskSecret, REDACTED };

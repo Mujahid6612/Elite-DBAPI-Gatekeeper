@@ -56,19 +56,48 @@ test('a different tenant directory still gets created', () => {
   assert.ok(fs.existsSync(tenantAuditLog.resolveTenantLogFile(second)));
 });
 
-test('a failed creation is not cached, so the next write retries', () => {
+test('a write failure is swallowed, not propagated into the request', () => {
+  // CHANGED FROM THE ORIGINAL BEHAVIOUR (was S-10). This used to assert that the
+  // failure THREW. It no longer does: an unwritable log directory must not turn a
+  // request whose database call already succeeded into a 500. The detail is reported
+  // through appLogger instead.
   const config = tempConfig();
   const original = fs.mkdirSync;
   fs.mkdirSync = () => {
     throw new Error('EACCES');
   };
   try {
-    assert.throws(() => tenantAuditLog.log('x', config), { message: 'EACCES' });
+    assert.doesNotThrow(() => tenantAuditLog.log('x', config), 'logging must not fail the caller');
   } finally {
     fs.mkdirSync = original;
   }
 
-  // Retry now succeeds, proving the failure was not memoized.
+  // Retry still succeeds, proving the failure was not memoized by ensuredDirectories.
   assert.doesNotThrow(() => tenantAuditLog.log('y', config));
   assert.ok(fs.readFileSync(tenantAuditLog.resolveTenantLogFile(config), 'utf8').includes('y'));
+});
+
+test('a write failure still leaves the entry on stdout, so the record is not lost', () => {
+  const config = tempConfig();
+  const originalAppend = fs.appendFileSync;
+  const originalLog = console.log;
+  const captured = [];
+
+  console.log = (line) => captured.push(String(line));
+  fs.appendFileSync = () => {
+    const error = new Error('EROFS: read-only file system');
+    error.code = 'EROFS';
+    throw error;
+  };
+  try {
+    tenantAuditLog.log('payload-that-must-survive', config);
+  } finally {
+    fs.appendFileSync = originalAppend;
+    console.log = originalLog;
+  }
+
+  assert.ok(
+    captured.some((line) => line.includes('payload-that-must-survive')),
+    'the audit entry must reach stdout when the file sink is unavailable'
+  );
 });

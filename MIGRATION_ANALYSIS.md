@@ -56,11 +56,24 @@ The source method has no `try/catch`. Config/IP/decryption failures escape to th
 
 **Decision:** no new email is wired into the core route. Adding it would be a behavior change.
 
-### 5. The source's `SELF` fallback is currently shadowed by the wildcard tenant
+### 5. Wildcard/`SELF` ordering — RESOLVED, and this section was stale
 
-Current `config.xml` has `<sourceWebsite>*</sourceWebsite>` before `<sourceWebsite>SELF</sourceWebsite>`, and `ConfigReader` stops at the first matching block. Since `*` matches `SELF`, `new ConfigReader("SELF")` selects company `101`, not the later company `999` SELF block.
+`ConfigReader` stops at the first matching block, and `*` matches everything, so the ORDER of `<appSettings>` blocks decides tenant resolution.
 
-**Decision:** preserved exactly. Reordering the XML or preferring exact matches would be a functional change. This should be fixed only as a deliberate follow-up.
+**In the original .NET `config.xml`**, `<sourceWebsite>*</sourceWebsite>` came before `<sourceWebsite>SELF</sourceWebsite>`, so the wildcard shadowed the explicit block and `new ConfigReader("SELF")` selected company `101` rather than the company `999` SELF block. That is what this section originally documented, and the decision was to preserve it.
+
+**The `config.xml` in this repository has since been reordered**: the `SELF` block is now first. Verified at runtime:
+
+```
+'SELF'        -> company 999  (WebAPI Itself, logType 1 -> .txt)
+any other host -> company 101 (Elite DBAPI,   logType 0 -> .html)
+```
+
+The on-disk log tree confirms it — both `Log/999/<year>/*.txt` and `Log/101/<year>/*.html` exist, which is only possible if `SELF` resolves to 999.
+
+This is the behavior the original `SELF` fallback intended, so it is kept. The stale claim has been corrected here and in `config/configReader.js`.
+
+**Why no test caught the drift:** `test/characterization/configReader.test.js` writes its own fixtures and asserts BOTH orderings independently, so it never asserted anything about the shipped `config.xml`. The ordering of that file remains unpinned by any test — if it matters operationally, add an assertion against the real file.
 
 ### 6. FlightView POST/PUT/DELETE are C# `void`
 
@@ -91,26 +104,71 @@ Verification was performed against **both real encrypted values** from the suppl
 
 The automated test suite verifies both fingerprints and that re-encrypting each plaintext reproduces the original ciphertext byte-for-byte.
 
+## Security fixes — parity DELIBERATELY broken
+
+These were preserved from the source, reviewed, and then fixed because the risk outweighed
+parity. Each is covered by a test that now guards the FIX rather than the original behavior.
+
+- **The diagnostic GET no longer discloses secrets.** `GET /DBAPI/ProcessRequest/{id}` printed
+  the decrypted DB connection string and the tenant API password in clear text to any caller
+  that passed the IP gate — and both supplied tenants set `whitelistedIPs=*`, so on the public
+  deployment that gate admits everyone. Both values are now masked by `maskSecret` in
+  `services/diagnosticSummaryView.js`. Labels, order and framing are byte-identical; an unset
+  value still renders empty, so "not configured" is still distinguishable from "hidden".
+- **Unexpected error text is no longer echoed to callers.** The core POST still returns HTTP
+  200 with a message body (contractual, and clients depend on it), but the body now passes
+  through `utils/clientSafeError.js`. Deliberate answers — anything prefixed `Access Denied.`,
+  the .NET missing-member text, and JSON syntax errors — are unchanged. Oracle `ORA-`/`PLS-`
+  text naming the schema, package and line of the failing procedure, along with filesystem and
+  connection errors, is replaced with the generic Web API string and logged server-side instead.
+- **Logging can no longer take the API down.** Tenant log writes were synchronous and unguarded,
+  so a full disk, a read-only filesystem or a permissions failure turned a request whose database
+  call had already SUCCEEDED into a failure. `writeTenant` now treats the file sink as best-effort
+  and reports failures through `appLogger`. The stdout echo runs first, so the audit record
+  survives even when the file cannot be written. Framing and byte layout are unchanged whenever
+  the file IS writable.
+- **The credential check now looks where the client actually puts credentials.**
+  `assertApiCredentials` read `APILogin`/`APIPassword` from the TOP LEVEL of the body only, while
+  the EliteApp client sends them inside `JsonReq.JHeader`. The two never met. This was invisible
+  because both tenants leave the credential fields blank so the check short-circuits — but the
+  moment a tenant enabled credentials, every real request would have failed with the
+  null-reference error instead of authenticating. Both placements are now accepted, top level
+  first, so existing callers are unaffected.
+
 ## Faithfully preserved but questionable behavior
 
-- Diagnostic GET exposes the decrypted DB connection string and API password to a caller that passes the IP gate.
-- Core POST returns an exception message as a normal action string for exceptions caught after tenant creation, instead of using an HTTP error status.
-- The catch block has a null-config bug: if tenant construction itself fails, its first logging statement dereferences `config` and can convert the intended friendly error into a framework 500.
+- Core POST still returns exceptions as HTTP **200** with a message body rather than a 4xx/5xx.
+  Only WHICH text is disclosed changed (above); the status contract is untouched.
+- The catch block has a null-config bug: if tenant construction itself fails, its first logging statement dereferences `config` and can convert the intended friendly error into a framework 500. Unreachable while a wildcard tenant exists, since every host then resolves.
 - Stored procedure outputs `oCode` and `oMessage` are ignored externally.
 - Marker logs are written even when `enableLogging=0`; the flag only gates REQUEST/jsonRequest/ActionCode/RESPONSE blocks.
-- Current wildcard ordering prevents the explicit `SELF` tenant from being selected.
 - The source archive contains historical logs holding sensitive request data/credentials. They are deliberately excluded from the Node package.
 - The diagnostic GET reports `Is IP Whitelisted: False` for a caller it just admitted. The gate calls
   `isIPWhitelisted(ip, true)` but the summary renders `isIPWhitelisted(ip)` with `checkStarCondition` defaulted to
   false, and with `whitelistedIPs='*'` that branch returns false. Display-only; the access decision is unaffected.
-- A blank `<logType></logType>` coerces to `0`, i.e. HTML - not text. The `SELF` tenant would therefore log as HTML
-  if it were ever selected.
+- A blank `<logType></logType>` coerces to `0`, i.e. HTML - not text.
 - A request body larger than the body limit returns **500**, not 413: the error handler returns the generic Web API
   payload for every unhandled error and ignores `err.status`.
-- Tenant log writes are synchronous and unguarded, so a full disk or a permissions failure on the log directory can
-  turn a successful request into a failure. Logging can take the API down.
 - Every tenant shares one database identity: the Oracle pool uses `ORACLE_USER`/`ORACLE_PASSWORD` from the
-  environment, not the per-tenant `targetDBConnectionString` decrypted from `config.xml`.
+  environment, not the per-tenant `targetDBConnectionString` decrypted from `config.xml`. Note that for `dbType=2`
+  the decrypted connection string is never used at all — `repositories/dbRepository.js` passes it only to the SQL
+  Server driver.
+
+## Open risks NOT fixed in code — these need an operational decision
+
+- **`whitelistedIPs=*` on both tenants.** The IP gate admits every caller, so it currently provides
+  no access control. It is the only gate in front of the diagnostic endpoint and, with tenant
+  credentials blank, in front of the stored-procedure dispatch as well.
+- **`config.xml` is tracked in git and its encryption is reversible.** The passphrase, salt and IV
+  are hardcoded in `config/configReader.js`, so anyone with repository access can decrypt the
+  connection string. Masking the diagnostic output closes the runtime disclosure but does nothing
+  about the checked-in ciphertext. **Rotate the database credentials**, then decide whether
+  `config.xml` should be supplied at deploy time rather than committed.
+- **Oracle session ceiling on serverless.** Each function instance builds its own pool, so total
+  sessions are `instances × poolMax` with no global cap. `ORACLE_POOL_MAX` is unset, which leaves
+  node-oracledb's default of 4 per instance. Set it explicitly for the Vercel deployment.
+- **Graceful shutdown never runs on Vercel.** `server.js` is not the entrypoint there
+  (`api/index.js` is), so pools are not drained on instance recycle.
 
 ## Cross-platform substitutions / limits
 
@@ -127,8 +185,10 @@ The automated test suite verifies both fingerprints and that re-encrypting each 
 3. Verify DB connectivity from the Node host and execute a safe test `ActionCode` against `REQUEST_HANDLER.ACTIONS`.
 4. Replay captured production requests against old/new services and compare bodies and headers, especially string content negotiation.
 5. Test a representative FlightView XML response and `RESP=JSON` result side-by-side.
-6. Decide explicitly whether to retain or fix the secret-leaking diagnostic GET, always-200 caught POST errors, wildcard/SELF ordering, and null-config logging bug.
-7. Rotate credentials because the supplied source archive includes old logs/config material containing sensitive values.
+6. ~~Decide explicitly whether to retain or fix the secret-leaking diagnostic GET~~ — **done**, see "Security fixes" above. Still outstanding from that item: the always-200 POST status contract (retained) and the null-config logging bug (retained, unreachable in practice).
+7. Rotate credentials because the supplied source archive includes old logs/config material containing sensitive values. **Still required** — `config.xml` is tracked in git and its encryption is reversible with key material hardcoded in `config/configReader.js`, so the connection string must be considered compromised to anyone who has ever had repository access.
+9. Narrow `whitelistedIPs` from `*`, or accept explicitly that the API is open to the internet.
+10. Set `ORACLE_POOL_MAX` explicitly on the serverless deployment; the default of 4 applies **per instance**.
 8. **Set `ORACLE_THICK_MODE=true` and `ORACLE_CLIENT_LIB_DIR` on the existing Windows host.** Earlier builds called
    `initOracleClient()` unconditionally, so they always ran in Thick mode regardless of the flag. That call is now
    gated, and leaving the flag unset switches the service to Thin mode.

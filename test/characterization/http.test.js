@@ -20,6 +20,8 @@ process.env.LOG_LEVEL = 'silent';
 const app = require('../../app');
 const tenantAuditLog = require('../../utils/tenantAuditLog');
 const dbRepository = require('../../repositories/dbRepository');
+const { renderDiagnosticSummary, REDACTED } = require('../../services/diagnosticSummaryView');
+const { GENERIC_MESSAGE } = require('../../utils/clientSafeError');
 const { withServer, request } = require('../helpers/httpClient');
 
 /** Silences the tenant audit log for the duration of `run`. */
@@ -90,16 +92,70 @@ test('GET /DBAPI/ProcessRequest/:id returns the diagnostic summary with all labe
   });
 });
 
-test('the diagnostic summary still discloses the decrypted connection string (G3)', async () => {
-  // Preserved on purpose. This test exists so that "fixing" it is a deliberate,
-  // visible decision (S-1) rather than an accident.
+test('the diagnostic summary no longer discloses the decrypted connection string (was G3)', async () => {
+  // REVERSED DELIBERATELY. This test previously asserted the OPPOSITE: that the
+  // decrypted plaintext was still disclosed, so that redacting it would have to be a
+  // conscious decision (S-1). That decision has now been taken - both supplied tenants
+  // set whitelistedIPs='*', so on the public deployment this endpoint was handing live
+  // database credentials to anonymous callers. The test now guards the redaction.
   await withServer(app, async (port) => {
     const res = await request(port, { path: '/DBAPI/ProcessRequest/1' });
     const summary = JSON.parse(res.body);
     const value = summary.split('Target DB Connection String: ')[1].split('<br />')[0];
-    assert.ok(value.length > 0, 'connection string must still be present');
-    assert.ok(/data source/i.test(value), 'and must still be the decrypted plaintext');
+
+    assert.equal(value, REDACTED, 'a configured connection string must render as the mask');
+    assert.ok(!/data source/i.test(summary), 'no fragment of the decrypted plaintext may survive');
+    assert.ok(!/password\s*=/i.test(summary), 'nor any credential from inside it');
   });
+});
+
+test('the diagnostic summary masks the tenant API password but keeps the username', async () => {
+  // The username identifies which caller a tenant expects and is not a secret; the
+  // password is. Both labels remain so the response layout is unchanged.
+  const config = {
+    sourceWebsite: 'X',
+    projectName: 'P',
+    targetDBConnectionString: 'Data Source=db;User Id=scott;Password=tiger;',
+    companyNum: '101',
+    whitelistedIPs: '*',
+    blacklistedIPs: '',
+    enableLogging: true,
+    apiUserName: 'user@webapis.com',
+    apiPassword: 'super-secret',
+    isIPWhitelisted: () => false,
+    isIPBlacklisted: () => false
+  };
+
+  const summary = renderDiagnosticSummary(config, '1.1.1.1', 'host');
+
+  assert.ok(summary.includes(`API Username: ${config.apiUserName}`), 'the username stays visible');
+  assert.ok(summary.includes(`API Password: ${REDACTED}`), 'the password is masked');
+  assert.ok(!summary.includes('super-secret'), 'the password value must not appear anywhere');
+  assert.ok(!summary.includes('tiger'), 'nor the connection string password');
+});
+
+test('an unset secret still renders as an empty field, not as a mask', () => {
+  // So an operator can tell "not configured" from "configured but hidden" - the only
+  // legitimate diagnostic signal these lines ever carried.
+  const config = {
+    sourceWebsite: 'X',
+    projectName: 'P',
+    targetDBConnectionString: '',
+    companyNum: '999',
+    whitelistedIPs: '*',
+    blacklistedIPs: '',
+    enableLogging: false,
+    apiUserName: '',
+    apiPassword: '',
+    isIPWhitelisted: () => false,
+    isIPBlacklisted: () => false
+  };
+
+  const summary = renderDiagnosticSummary(config, '1.1.1.1', 'host');
+
+  assert.ok(summary.includes('Target DB Connection String: <br />'), 'empty stays empty');
+  assert.ok(summary.includes('API Password: <br />'), 'empty stays empty');
+  assert.ok(!summary.includes(REDACTED), 'nothing is masked when nothing is set');
 });
 
 test('Accept: application/xml wraps responses in the DataContract string envelope', async () => {
@@ -192,7 +248,14 @@ test('POST returns HTTP 200 with the exception message when the DB fails (G4)', 
           })
         });
         assert.equal(res.status, 200, 'errors after tenant resolution must stay 200');
-        assert.equal(JSON.parse(res.body), 'ORA-06550: bad proc');
+        // CHANGED: the STATUS is still 200 (contractual), but the driver text is no
+        // longer echoed. `ORA-` messages name the schema, package and line of the
+        // failing procedure, and with whitelistedIPs='*' that reached anonymous
+        // callers. The full message still goes to the tenant and application logs.
+        const body = JSON.parse(res.body);
+        assert.equal(body, GENERIC_MESSAGE, 'driver detail must be replaced');
+        assert.ok(!/ORA-/.test(body), 'no Oracle error code may reach the caller');
+        assert.ok(!/bad proc/.test(body), 'nor the procedure detail');
       } finally {
         dbRepository.processDbRequest = original;
       }

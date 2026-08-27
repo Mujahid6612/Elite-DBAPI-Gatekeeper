@@ -43,6 +43,56 @@ function extractRequestFields(jObject, config) {
 }
 
 /**
+ * Returns the `JsonReq.JHeader` object of a request body, or null when the body does
+ * not carry one. `JsonReq` is accepted either as a nested object (what the React
+ * Native client sends) or as a JSON string (what a hand-rolled client may send, since
+ * parsers/requestTokenParser.js renders it as text either way). A `JsonReq` that does
+ * not parse is simply treated as carrying no header - reporting that here would
+ * replace the credentials error with a parser error.
+ */
+function requestHeader(jObject) {
+  let jsonReq = jObject ? jObject.JsonReq : null;
+
+  if (typeof jsonReq === 'string') {
+    try {
+      jsonReq = JSON.parse(jsonReq);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!jsonReq || typeof jsonReq !== 'object') return null;
+  const header = jsonReq.JHeader;
+  return header && typeof header === 'object' ? header : null;
+}
+
+/**
+ * Reads a credential member from either placement the wire format actually uses.
+ *
+ * FIXED: the check previously looked ONLY at the TOP LEVEL of the body, but the
+ * EliteApp client puts `APILogin`/`APIPassword` inside `JsonReq.JHeader`
+ * (src/Services/apiService.ts). The two never met. That went unnoticed only because
+ * both supplied tenants leave `apiUserName`/`apiPassword` blank in config.xml, so the
+ * caller below short-circuits and the check never runs. The moment a tenant enabled
+ * credentials - the exact moment the control is supposed to start protecting
+ * something - every request from the app would have failed with the .NET
+ * null-reference error instead of authenticating.
+ *
+ * Top level is tried FIRST so existing top-level callers, and the characterization
+ * tests that pin them, are completely unaffected. When neither placement carries the
+ * member the lookup falls back to the top-level `requireToken`, so an absent
+ * credential still produces the original null-reference message verbatim.
+ */
+function requireCredential(jObject, key) {
+  if (Object.prototype.hasOwnProperty.call(jObject, key)) return requireToken(jObject, key);
+
+  const header = requestHeader(jObject);
+  if (header && Object.prototype.hasOwnProperty.call(header, key)) return requireToken(header, key);
+
+  return requireToken(jObject, key);
+}
+
+/**
  * Verifies body credentials, but only for tenants that configure BOTH a username and
  * a password - a tenant with just one set skips the check entirely.
  *
@@ -56,8 +106,8 @@ function extractRequestFields(jObject, config) {
 function assertApiCredentials(jObject, config) {
   if (config.apiUserName === '' || config.apiPassword === '') return;
 
-  const apiUserName = fixNullString(tokenToObjectString(requireToken(jObject, 'APILogin')));
-  const apiPassword = fixNullString(tokenToObjectString(requireToken(jObject, 'APIPassword')));
+  const apiUserName = fixNullString(tokenToObjectString(requireCredential(jObject, 'APILogin')));
+  const apiPassword = fixNullString(tokenToObjectString(requireCredential(jObject, 'APIPassword')));
 
   if (!(config.apiUserName === apiUserName && config.apiPassword === apiPassword)) {
     throw new Error(Messages.INVALID_CREDENTIALS);
