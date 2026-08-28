@@ -6,6 +6,7 @@ const sqlServerRepository = require('./repositories/sqlServerRepository');
 const envConfig = require('./config/env');
 const { validateEnv } = require('./config/validateEnv');
 const appLogger = require('./utils/appLogger');
+const tenantRegistry = require('./config/tenantRegistry');
 const { saveApplicationStartTime } = require('./utils/appStartTime');
 
 /** Set once shutdown begins, so a second signal does not start a second drain. */
@@ -94,7 +95,11 @@ async function startServer() {
 
     // Check that the new pool can provide a usable database connection.
     await oracleRepository.verifyConnectable();
-    appLogger.info('Connected to Oracle database');
+
+    // List what this deployment can route to, by projectName. Printed at startup so an
+    // operator can see the whole map without reading the config file - and so a missing
+    // or misnamed source is obvious before any traffic arrives.
+    for (const line of tenantRegistry.describeRoutes()) appLogger.info(`Route: ${line}`);
 
     // Bind address is intentionally not configurable: Express defaults to `::`,
     // which accepts both IPv6 and IPv4 clients. Passing an explicit '0.0.0.0' would

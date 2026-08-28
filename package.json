@@ -10,7 +10,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "encrypt-secret": "node scripts/encrypt-secret.js"
   },
   "keywords": [
     "dbapi",

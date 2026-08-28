@@ -1,7 +1,6 @@
 node_modules/
 Log/
 package-lock.json
-config.xml
 
 # Markdown is authored by hand (migration notes, review reports). Reformatting it
 # creates churn without improving the code, so it stays out of scope.

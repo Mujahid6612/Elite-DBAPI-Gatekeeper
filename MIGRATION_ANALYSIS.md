@@ -15,8 +15,8 @@ The supplied C# project was inspected controller-by-controller and through each 
 |---|---|---|
 | Route template | `DBAPI/{controller}/{id}`, optional id | Same `/DBAPI/...` endpoints |
 | Core health GET | `['Welcome to DB API']` | Same JSON array |
-| Tenant config | `config.xml`, first matching `<appSettings>` | Same XML, first match wins |
-| Config reload | XML loaded on every `ConfigReader` construction | Re-read/re-parse every construction |
+| Tenant config | `config.xml`, first matching `<appSettings>` | **CHANGED** — `config/tenants.jsonc`, selected by Source/Target (see below) |
+| Config reload | XML loaded on every `ConfigReader` construction | **CHANGED** — loaded once at startup (see below) |
 | IP star behavior | Recursive whitelist/blacklist nuance | Reproduced |
 | Main request fields | `ActionCode`, `ViewName`, `ClientIP`, `JsonReq`, `Notes` | Same |
 | Optional body credentials | `APILogin`, `APIPassword` | Same |
@@ -26,7 +26,7 @@ The supplied C# project was inspected controller-by-controller and through each 
 | DB output | `oJsonResp` drives response; `oCode`/`oMessage` discarded | Same external behavior |
 | Output newline transform | Replaces LF `\n` with a single space | Same |
 | Flight query order | `ACID, DEPAP, DEPDATE, DEPHR, ARRAP, ARRDATE, ARRHR, AL, SIMPLESTATUS` | Same |
-| Logging path | `<logPath>/<company>/<year>/<dd-MMM-yyyy>.<ext>` | Same |
+| Logging path | `<logPath>/<company>/<year>/<dd-MMM-yyyy>.<ext>` | Same, but a request now spans TWO files: the default block's until the body is parsed, the matched block's after |
 | Marker logging | `-1:`, `0:`, `1:`, `2:`, `3:` | Preserved |
 | Client IP | Server-observed remote address; no XFF logic | Same by default; proxy trust opt-in |
 
@@ -56,24 +56,11 @@ The source method has no `try/catch`. Config/IP/decryption failures escape to th
 
 **Decision:** no new email is wired into the core route. Adding it would be a behavior change.
 
-### 5. Wildcard/`SELF` ordering — RESOLVED, and this section was stale
+### 5. Wildcard/`SELF` ordering — HISTORICAL, no longer applicable
 
-`ConfigReader` stops at the first matching block, and `*` matches everything, so the ORDER of `<appSettings>` blocks decides tenant resolution.
+`ConfigReader` stopped at the first matching `<appSettings>` block, and `*` matched everything, so the ORDER of blocks decided tenant resolution. In the original .NET `config.xml` the wildcard came first and shadowed the explicit `SELF` block, which made the exception-report path in `logProcessRequestFailure` permanently dead. That was later corrected by reordering the file.
 
-**In the original .NET `config.xml`**, `<sourceWebsite>*</sourceWebsite>` came before `<sourceWebsite>SELF</sourceWebsite>`, so the wildcard shadowed the explicit block and `new ConfigReader("SELF")` selected company `101` rather than the company `999` SELF block. That is what this section originally documented, and the decision was to preserve it.
-
-**The `config.xml` in this repository has since been reordered**: the `SELF` block is now first. Verified at runtime:
-
-```
-'SELF'        -> company 999  (WebAPI Itself, logType 1 -> .txt)
-any other host -> company 101 (Elite DBAPI,   logType 0 -> .html)
-```
-
-The on-disk log tree confirms it — both `Log/999/<year>/*.txt` and `Log/101/<year>/*.html` exist, which is only possible if `SELF` resolves to 999.
-
-This is the behavior the original `SELF` fallback intended, so it is kept. The stale claim has been corrected here and in `config/configReader.js`.
-
-**Why no test caught the drift:** `test/characterization/configReader.test.js` writes its own fixtures and asserts BOTH orderings independently, so it never asserted anything about the shipped `config.xml`. The ordering of that file remains unpinned by any test — if it matters operationally, add an assertion against the real file.
+**Both the file and the mechanism are now gone.** Host-header matching was removed with the XML: `config/tenants.jsonc` has one `default` block and blocks selected by `Source`/`Target`, so there is no ordering and nothing can shadow anything. The exception-report path now uses the `default` block, which sets `enableLogging: true`.
 
 ### 6. FlightView POST/PUT/DELETE are C# `void`
 
@@ -97,7 +84,9 @@ The source uses `HttpClient.GetStringAsync()` and returns a C# `string`; it does
 
 The source uses `PasswordDeriveBytes` + Rijndael/AES-CBC, MD5, two iterations, 256-bit key, fixed IV. The migration document's simplified KDF prose is not byte-exact to .NET `PasswordDeriveBytes`; the Node implementation instead reproduces the actual .NET derivation behavior.
 
-Verification was performed against **both real encrypted values** from the supplied project (`config.xml` and `Web.config`). The decrypted plaintext is intentionally not written into this report. Verification uses SHA-256 fingerprints of the resulting plaintext plus an encrypt-roundtrip check:
+Verification was performed against **both real encrypted values** from the supplied project (the original `config.xml` and `Web.config`). The decrypted plaintext is intentionally not written into this report.
+
+**The passphrase has since moved to the environment** (`CONFIG_ENCRYPTION_KEY`). `test/parity.test.js` still proves byte-exact reproduction of the original scheme by passing the legacy passphrase explicitly; nothing defaults to it any more. See "Configuration format" below. Verification uses SHA-256 fingerprints of the resulting plaintext plus an encrypt-roundtrip check:
 
 - tenant `config.xml` decrypted plaintext SHA-256: `8f3c3b4582c5ef3ae6cdafc047e5b2007ace21ebfe717f43947abeafccc20045`
 - `Web.config` decrypted plaintext SHA-256: `dc13bc3b67256c9ca3923a8261ef694c9436216f5ac1a4231f0cad61a5c3fa32`
@@ -149,21 +138,68 @@ parity. Each is covered by a test that now guards the FIX rather than the origin
 - A blank `<logType></logType>` coerces to `0`, i.e. HTML - not text.
 - A request body larger than the body limit returns **500**, not 413: the error handler returns the generic Web API
   payload for every unhandled error and ignores `err.status`.
-- Every tenant shares one database identity: the Oracle pool uses `ORACLE_USER`/`ORACLE_PASSWORD` from the
-  environment, not the per-tenant `targetDBConnectionString` decrypted from `config.xml`. Note that for `dbType=2`
-  the decrypted connection string is never used at all — `repositories/dbRepository.js` passes it only to the SQL
-  Server driver.
+- ~~Every tenant shares one database identity.~~ **Superseded** — see "Source/Target database routing" below.
+
+## Configuration format — XML replaced by JSON
+
+The .NET original had no concept of request-driven routing: one process, one Oracle
+identity, and a per-tenant `targetDBConnectionString` in `config.xml` that the Oracle
+path **discarded**, so per-tenant targeting only looked real. That whole layer has been
+replaced.
+
+**Removed:** `config.xml`, `configReader.js`, `configReaderProvider.js`, `configSource.js`,
+`xmlSettingsParser.js`.
+**Added:** `config/tenants.jsonc`, `config/tenantRegistry.js`, `config/tenant.js`.
+
+- **Selection is by `Source`/`Target` from `JsonReq.JHeader`**, not by the Host header.
+  A block lists every source that shares it, so several applications can reach one
+  database with identical settings (many-to-one), and one application can reach several
+  by varying `Target`.
+- **`config/tenant.js` keeps the exact interface `ConfigReader` had** — same getters,
+  same return types, same IP-gate methods — which is why `tenantAuditLog`,
+  `diagnosticSummaryView` and `accessLog` needed no changes. JSON can carry real numbers
+  and booleans where XML gave strings, so every getter normalises to the type the XML
+  path produced.
+- **A `default` block is required.** The audit log and the IP gate run BEFORE the body is
+  parsed, and `Source`/`Target` do not exist yet at that point. The default block supplies
+  `logType`, `logPath` and the IP policy for those steps, and is also the tenant for
+  routes with no envelope (FlightView, the diagnostic GET, the access log, 404s).
+- **Strict by design.** A body with no Source/Target, or a pair this deployment does not
+  configure, is refused. There is no fallback: silently serving one application's traffic
+  from another's database is worse than a clear refusal.
+- **Loaded once, not per request.** The XML reader deliberately re-read on every
+  construction so an edit applied without a restart. That is not carried over: a block now
+  names environment variables and holds ciphertext decrypted with an environment
+  passphrase, both fixed at process start, so re-reading would apply half a change.
+- **The encryption passphrase moved to `CONFIG_ENCRYPTION_KEY`.** It was hardcoded in
+  `configReader.js` beside the ciphertext it protected, which made the file obfuscated
+  rather than encrypted. `npm run encrypt-secret` generates values for the new key.
+- **Fail-fast validation.** `validateEnv` refuses to start on a missing `default` block, a
+  block with no sources or target, a source claimed twice, an unknown field, both
+  credential styles at once, a non-positive `poolMax`, an unset referenced variable, or
+  ciphertext with no key — every problem in one message.
+- **One pool per credential set**, keyed by credential identity rather than block name, so
+  sources sharing a database do not multiply the Oracle sessions held.
+- `Source`, `Target` and `RequestedURL` are still forwarded to the stored procedure inside
+  `pJsonReq` exactly as sent. Routing reads them; it does not consume them.
+
+**`RequestedURL` is deliberately NOT used for routing.** Two inputs deciding the same
+thing is how they come to disagree. It is retained on the wire only because it is
+forwarded to `REQUEST_HANDLER.ACTIONS`, and whether that procedure reads it has not yet
+been confirmed. Sequence before removing it from clients: (1) confirm the procedure
+ignores it, (2) log any disagreement between it and the resolved block, (3) then drop it.
 
 ## Open risks NOT fixed in code — these need an operational decision
 
 - **`whitelistedIPs=*` on both tenants.** The IP gate admits every caller, so it currently provides
   no access control. It is the only gate in front of the diagnostic endpoint and, with tenant
   credentials blank, in front of the stored-procedure dispatch as well.
-- **`config.xml` is tracked in git and its encryption is reversible.** The passphrase, salt and IV
-  are hardcoded in `config/configReader.js`, so anyone with repository access can decrypt the
-  connection string. Masking the diagnostic output closes the runtime disclosure but does nothing
-  about the checked-in ciphertext. **Rotate the database credentials**, then decide whether
-  `config.xml` should be supplied at deploy time rather than committed.
+- **The old `config.xml` ciphertext must be treated as compromised.** Its passphrase was
+  hardcoded in `configReader.js`, so anyone who has ever had repository access can decrypt it.
+  The mechanism is fixed — `config/tenants.jsonc` decrypts with `CONFIG_ENCRYPTION_KEY` from the
+  environment, and the shipped block carries no ciphertext at all — but **the credentials
+  themselves still need rotating**, and any value encrypted under the legacy passphrase must be
+  re-encrypted with `npm run encrypt-secret` under the new key.
 - **Oracle session ceiling on serverless.** Each function instance builds its own pool, so total
   sessions are `instances × poolMax` with no global cap. `ORACLE_POOL_MAX` is unset, which leaves
   node-oracledb's default of 4 per instance. Set it explicitly for the Vercel deployment.
@@ -186,7 +222,7 @@ parity. Each is covered by a test that now guards the FIX rather than the origin
 4. Replay captured production requests against old/new services and compare bodies and headers, especially string content negotiation.
 5. Test a representative FlightView XML response and `RESP=JSON` result side-by-side.
 6. ~~Decide explicitly whether to retain or fix the secret-leaking diagnostic GET~~ — **done**, see "Security fixes" above. Still outstanding from that item: the always-200 POST status contract (retained) and the null-config logging bug (retained, unreachable in practice).
-7. Rotate credentials because the supplied source archive includes old logs/config material containing sensitive values. **Still required** — `config.xml` is tracked in git and its encryption is reversible with key material hardcoded in `config/configReader.js`, so the connection string must be considered compromised to anyone who has ever had repository access.
+7. Rotate credentials because the supplied source archive includes old logs/config material containing sensitive values. **Still required** — the legacy `config.xml` ciphertext was decryptable with key material hardcoded in the repository, so anything encrypted under it must be considered compromised. Set `CONFIG_ENCRYPTION_KEY` to a new passphrase and re-encrypt each block with `npm run encrypt-secret`.
 9. Narrow `whitelistedIPs` from `*`, or accept explicitly that the API is open to the internet.
 10. Set `ORACLE_POOL_MAX` explicitly on the serverless deployment; the default of 4 applies **per instance**.
 8. **Set `ORACLE_THICK_MODE=true` and `ORACLE_CLIENT_LIB_DIR` on the existing Windows host.** Earlier builds called

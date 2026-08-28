@@ -30,7 +30,7 @@ function fixNullBoolean(value) {
   try {
     text = String(value).toUpperCase();
   } catch {
-    // Only reachable for a value whose toString() throws, which config.xml cannot
+    // Only reachable for a value whose toString() throws, which the config cannot
     // produce. Preserved because the original swallowed it and returned false.
     return false;
   }

@@ -1,5 +1,15 @@
 'use strict';
 
+/**
+ * Everything to do with talking to Oracle: connections, pools and running the stored procedure.
+ *
+ * WHY IT EXISTS: All the real work of this service happens inside one Oracle stored procedure, so
+ *                this file is where the actual database call is made.
+ *
+ * ROLE IN THE FLOW: The last stop before the database. It reuses connection pools so each database
+ *                   is connected to once, not once per request.
+ */
+
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -9,8 +19,46 @@ const appLogger = require('../utils/appLogger');
 const { fixNullString } = require('../utils/nullHelpers');
 const { STORED_PROC_PARAMS, INPUT_PARAMS, RESPONSE_PARAM } = require('./storedProcContract');
 
+/**
+ * The DEFAULT pool, built from ORACLE_USER / ORACLE_PASSWORD / ORACLE_CONNECTION.
+ * Kept as its own variable rather than folded into `namedPools` because it has a
+ * lifecycle the others do not: server.js creates it at startup to fail fast on bad
+ * credentials, and getPool()/verifyConnectable() assert on it.
+ */
 let oraclePool = null;
+
+/**
+ * Pools for routed connections that declare their own `envPrefix`, keyed BY THAT
+ * PREFIX rather than by connection name.
+ *
+ * Keying on credentials, not on the label, is deliberate: two connections in
+ * config/tenants.jsonc that resolve to the same credentials are the same database, and giving
+ * them separate pools would silently double the Oracle sessions this process holds
+ * for no benefit. A connection with no envPrefix uses the default credentials and
+ * therefore shares the default pool, for the same reason.
+ *
+ * Entries are promises so concurrent first-callers share one in-flight connect, and a
+ * failed attempt is evicted so the next request retries rather than being served a
+ * cached rejection - the same contract sqlServerRepository.js uses.
+ */
+const namedPools = new Map();
+
 let oracleClientInitialized = false;
+
+/**
+ * '' means "the default ORACLE_* credentials". See namedPools above.
+ *
+ * The key comes from `config/tenantRegistry.connectionFor`, which sets it from
+ * CREDENTIAL identity - the envPrefix, or the ciphertext for an inline connection
+ * string - never from the block name. Two blocks naming the same database therefore
+ * share one pool instead of doubling the Oracle sessions this process holds.
+ */
+function poolKey(connection) {
+  if (!connection) return '';
+  if (connection.poolKey !== undefined) return String(connection.poolKey);
+  // Older callers passed envPrefix directly; keep them working.
+  return connection.envPrefix ? String(connection.envPrefix) : '';
+}
 
 /**
  * node-oracledb runs in Thin mode by default and needs no Oracle Client libraries.
@@ -69,8 +117,16 @@ function materializeTnsNames() {
  * fail fast on bad credentials, and the connect-options tests assert on the exact
  * createPool call it makes.
  */
-async function connectDB() {
-  initializeOracleClient();
+/**
+ * Resolves the tnsnames.ora directory and exports it, once per process.
+ *
+ * Extracted so that creating a second pool for a routed connection does not
+ * re-materialize the same tnsnames.ora file on every call. All connections share one
+ * network-config directory: they are different databases, not different topologies.
+ */
+let resolvedConfigDir;
+function ensureConfigDir() {
+  if (resolvedConfigDir !== undefined) return resolvedConfigDir;
 
   const configDir = materializeTnsNames() || envConfig.oracleConfigDir;
   if (configDir) {
@@ -78,40 +134,93 @@ async function connectDB() {
     // node-oracledb's own fallback), so the process variable is still exported.
     process.env.TNS_ADMIN = configDir;
   }
+  resolvedConfigDir = configDir;
+  return configDir;
+}
 
+/**
+ * Builds the createPool option object for a connection, or for the default
+ * credentials when `connection` is absent.
+ *
+ * The default shape is EXACTLY four keys - user, password, connectString, configDir -
+ * and a test asserts that, so any tuning key must continue to come only from an
+ * explicitly set ORACLE_POOL_* variable.
+ */
+function buildPoolOptions(connection) {
+  const configDir = ensureConfigDir();
+  const useDefault = poolKey(connection) === '';
 
-  oraclePool = await oracledb.createPool({
-    user: envConfig.oracleUser,
-    password: envConfig.oraclePassword,
-    connectString: envConfig.oracleConnectString, // TNS alias from tnsnames.ora
+  const options = {
+    user: useDefault ? envConfig.oracleUser : connection.user,
+    password: useDefault ? envConfig.oraclePassword : connection.password,
+    // TNS alias from tnsnames.ora, or a full connect descriptor. For a block with an
+    // inline connectionString this is the ADO `Data Source` value.
+    connectString: useDefault ? envConfig.oracleConnectString : connection.connectString,
     // Where tnsnames.ora lives. `|| undefined` is equivalent to the previous
     // `process.env.TNS_ADMIN` read: node-oracledb resolves this internally as
     // `options.configDir || process.env.TNS_ADMIN || ''`, so an empty string and
     // undefined take the same path (see lib/impl/parserHelpers.js).
-    configDir: configDir || undefined ,
+    configDir: configDir || undefined,
     // Only explicitly configured tuning keys appear here; with none set this spread
     // adds nothing and the driver's own defaults apply, exactly as before.
     ...envConfig.oraclePool
-  });
+  };
+
+  // A per-connection ceiling, for when one database needs a different budget. Total
+  // sessions are (instances x connections x poolMax), so on a serverless host this is
+  // usually the knob that matters most.
+  if (!useDefault && connection.poolMax !== undefined) options.poolMax = connection.poolMax;
+
+  return options;
+}
+
+async function connectDB(label = 'default (ORACLE_* environment)') {
+  initializeOracleClient();
+
+  oraclePool = await oracledb.createPool(buildPoolOptions(null));
+  logConnected(label, buildPoolOptions(null).connectString);
 
   return oraclePool;
 }
 
-/**
- * Closes the shared pool, letting in-flight statements finish within `drainSeconds`.
- * Called during graceful shutdown so Oracle sessions are released promptly instead of
- * being left for the server to time out.
- */
-async function closePool(drainSeconds = 10) {
-  if (!oraclePool) return;
-
-  const pool = oraclePool;
-  oraclePool = null;
+/** Closes one pool, downgrading a close failure to a warning. */
+async function closeOne(pool, label, drainSeconds) {
   try {
     await pool.close(drainSeconds);
   } catch (error) {
-    appLogger.warn('Failed to close Oracle pool', { message: error && error.message });
+    appLogger.warn('Failed to close Oracle pool', { pool: label, message: error && error.message });
   }
+}
+
+/**
+ * Closes EVERY Oracle pool - the default one and each routed connection's - letting
+ * in-flight statements finish within `drainSeconds`. Called during graceful shutdown
+ * so sessions are released promptly instead of being left for the server to time out.
+ *
+ * The name is unchanged because server.js calls it, but the scope grew with routing:
+ * closing only the default pool would strand the sessions held by every routed
+ * connection, which is precisely the leak this exists to prevent.
+ */
+async function closePool(drainSeconds = 10) {
+  const closing = [];
+
+  if (oraclePool) {
+    const pool = oraclePool;
+    oraclePool = null;
+    closing.push(closeOne(pool, 'default', drainSeconds));
+  }
+
+  for (const [key, pending] of namedPools) {
+    namedPools.delete(key);
+    closing.push(
+      Promise.resolve(pending)
+        .then((pool) => closeOne(pool, key, drainSeconds))
+        // A pool that never finished connecting has nothing to close.
+        .catch(() => {})
+    );
+  }
+
+  await Promise.all(closing);
 }
 
 function getPool() {
@@ -140,15 +249,77 @@ let poolCreation = null;
  * after a transient database outage retries rather than being served a stale
  * rejection for the life of the instance.
  */
-async function ensurePool() {
+async function ensurePool(label) {
   if (oraclePool) return oraclePool;
 
   if (!poolCreation) {
-    poolCreation = connectDB().finally(() => {
+    poolCreation = connectDB(label).finally(() => {
       poolCreation = null;
     });
   }
   return poolCreation;
+}
+
+/**
+ * Returns the pool for a routed connection, creating it on first use.
+ *
+ * A connection with no `envPrefix` uses the default credentials, so it is served by
+ * the default pool rather than a duplicate of it - see the note on `namedPools`.
+ *
+ * @param {{name?: string, envPrefix?: string, user?: string, password?: string, connectString?: string}} [connection]
+ */
+async function poolFor(connection) {
+  const key = poolKey(connection);
+  // The block's projectName, so the log says WHICH database connected.
+  const label = (connection && connection.name) || 'default (ORACLE_* environment)';
+
+  if (key === '') return ensurePool(label);
+
+  const existing = namedPools.get(key);
+  if (existing) return existing;
+
+  initializeOracleClient();
+
+  const pending = oracledb
+    .createPool(buildPoolOptions(connection))
+    .then((pool) => {
+      // Logged HERE, not on every request: a pool is created once and then reused, so
+      // this line appearing twice for one database means something is building pools
+      // it should be sharing.
+      logConnected(label, connection.connectString);
+      return pool;
+    })
+    .catch((error) => {
+      // Not cached, so a database that was briefly unreachable is retried on the next
+      // request instead of poisoning this connection for the life of the instance.
+      namedPools.delete(key);
+      appLogger.error(`Failed to connect to database: ${label}`, {
+        database: label,
+        message: error && error.message
+      });
+      throw error;
+    });
+
+  namedPools.set(key, pending);
+  return pending;
+}
+
+/**
+ * Announces a successful database connection, naming the block it belongs to.
+ *
+ * The name is the block's `projectName` from config/tenants.jsonc, so an operator
+ * reading the log can tell WHICH database came up rather than only that "a" database
+ * did - which matters as soon as more than one is configured.
+ *
+ * The connect string (a TNS alias or host) is included because two blocks can share a
+ * projectName-like label while pointing somewhere different. Credentials are never
+ * logged.
+ */
+function logConnected(label, connectString) {
+  appLogger.info(`Connected to database: ${label}`, {
+    database: label,
+    connectString: connectString || '(from ORACLE_CONNECTION)'
+  });
 }
 
 /** Reads Oracle CLOB/LOB output values into plain strings. */
@@ -234,14 +405,22 @@ function buildBinds(args) {
 /**
  * Executes the tenant's stored procedure (default `REQUEST_HANDLER.ACTIONS`)
  * with the fixed 9-parameter bind contract carried over from the source app.
+ *
+ * `dbConnection` is the descriptor resolved from the request's Source/Target and
+ * decides WHICH database this runs against. It is optional so the startup smoke check
+ * and the driver-level tests can call through without inventing a route; omitting it
+ * uses the default ORACLE_* pool, which is exactly the pre-routing behaviour.
+ *
  * @param {string} procName
  * @param {import('../types').StoredProcArgs} args
+ * @param {{name?: string, envPrefix?: string}} [dbConnection]
  * @returns {Promise<import('../types').StoredProcResult>}
  */
-async function execute(procName, args) {
-  // ensurePool() rather than getPool(): identical once server.js has run, but on a
-  // serverless cold start this is where the pool actually gets created.
-  const pool = await ensurePool();
+async function execute(procName, args, dbConnection) {
+  // poolFor() rather than getPool(): identical once server.js has run for the default
+  // connection, but on a serverless cold start this is where the pool actually gets
+  // created, and for a routed connection it is the only place it is created at all.
+  const pool = await poolFor(dbConnection);
   const connection = await pool.getConnection();
 
   try {
@@ -278,13 +457,36 @@ async function verifyConnectable() {
   }
 }
 
+/**
+ * Proves a ROUTED connection can hand out a usable session, creating its pool if it
+ * does not exist yet.
+ *
+ * Separate from verifyConnectable() because that one asserts on the default pool via
+ * getPool() and throws when it has not been built. Health checks must be able to probe
+ * a connection that no request has used yet, which is exactly the one most likely to
+ * be misconfigured.
+ *
+ * @param {{name?: string, envPrefix?: string}} [dbConnection]
+ */
+async function verifyConnectableFor(dbConnection) {
+  const pool = await poolFor(dbConnection);
+  const connection = await pool.getConnection();
+  try {
+    return true;
+  } finally {
+    await closeQuietly(connection);
+  }
+}
+
 module.exports = {
   connectDB,
   ensurePool,
+  poolFor,
   getPool,
   closePool,
   execute,
   readLob,
   verifyConnectable,
+  verifyConnectableFor,
   initializeOracleClient
 };

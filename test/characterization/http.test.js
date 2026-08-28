@@ -22,6 +22,7 @@ const tenantAuditLog = require('../../utils/tenantAuditLog');
 const dbRepository = require('../../repositories/dbRepository');
 const { renderDiagnosticSummary, REDACTED } = require('../../services/diagnosticSummaryView');
 const { GENERIC_MESSAGE } = require('../../utils/clientSafeError');
+const { Messages } = require('../../constants');
 const { withServer, request } = require('../helpers/httpClient');
 
 /** Silences the tenant audit log for the duration of `run`. */
@@ -92,21 +93,37 @@ test('GET /DBAPI/ProcessRequest/:id returns the diagnostic summary with all labe
   });
 });
 
-test('the diagnostic summary no longer discloses the decrypted connection string (was G3)', async () => {
+test('the diagnostic summary no longer discloses the decrypted connection string (was G3)', () => {
   // REVERSED DELIBERATELY. This test previously asserted the OPPOSITE: that the
   // decrypted plaintext was still disclosed, so that redacting it would have to be a
-  // conscious decision (S-1). That decision has now been taken - both supplied tenants
-  // set whitelistedIPs='*', so on the public deployment this endpoint was handing live
+  // conscious decision (S-1). That decision has now been taken - blocks set
+  // whitelistedIPs='*', so on the public deployment this endpoint was handing live
   // database credentials to anonymous callers. The test now guards the redaction.
-  await withServer(app, async (port) => {
-    const res = await request(port, { path: '/DBAPI/ProcessRequest/1' });
-    const summary = JSON.parse(res.body);
-    const value = summary.split('Target DB Connection String: ')[1].split('<br />')[0];
+  //
+  // Built from a block that actually CARRIES a connection string: the shipped default
+  // block has none (it never dispatches a procedure), and an absent value renders as
+  // empty, which is covered by its own test below.
+  const config = {
+    sourceWebsite: 'EliteNativeApp',
+    projectName: 'Elite DBAPI',
+    targetDBConnectionString: 'Data Source=ELDevWan;user id=SCOTT;Password=tiger;',
+    companyNum: '101',
+    whitelistedIPs: '*',
+    blacklistedIPs: '',
+    enableLogging: true,
+    apiUserName: 'user@webapis.com',
+    apiPassword: 'secret',
+    isIPWhitelisted: () => false,
+    isIPBlacklisted: () => false
+  };
 
-    assert.equal(value, REDACTED, 'a configured connection string must render as the mask');
-    assert.ok(!/data source/i.test(summary), 'no fragment of the decrypted plaintext may survive');
-    assert.ok(!/password\s*=/i.test(summary), 'nor any credential from inside it');
-  });
+  const summary = renderDiagnosticSummary(config, '1.1.1.1', 'host');
+  const value = summary.split('Target DB Connection String: ')[1].split('<br />')[0];
+
+  assert.equal(value, REDACTED, 'a configured connection string must render as the mask');
+  assert.ok(!/data source/i.test(summary), 'no fragment of the decrypted plaintext may survive');
+  assert.ok(!/password\s*=/i.test(summary), 'nor any credential from inside it');
+  assert.ok(!summary.includes('tiger'), 'nor the password inside it');
 });
 
 test('the diagnostic summary masks the tenant API password but keeps the username', async () => {
@@ -185,7 +202,7 @@ test('POST /DBAPI/ProcessRequest returns the stored-procedure output on success'
             ActionCode: 'A',
             ViewName: 'V',
             ClientIP: '1.1.1.1',
-            JsonReq: {},
+            JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI' } },
             Notes: 'N'
           })
         });
@@ -208,7 +225,7 @@ test('POST accepts the legacy single-quoted body shape (G12)', async () => {
           ActionCode: 'A',
           ViewName: 'V',
           ClientIP: '1.1.1.1',
-          JsonReq: {},
+          JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI' } },
           Notes: 'N'
         });
         const res = await request(port, {
@@ -243,7 +260,7 @@ test('POST returns HTTP 200 with the exception message when the DB fails (G4)', 
             ActionCode: 'A',
             ViewName: 'V',
             ClientIP: '1.1.1.1',
-            JsonReq: {},
+            JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI' } },
             Notes: 'N'
           })
         });
@@ -367,4 +384,58 @@ test('CORS preflight reproduces the Web.config policy', async () => {
     assert.equal(res.headers['access-control-allow-methods'], 'GET,HEAD,OPTIONS,POST,PUT');
     assert.equal(res.headers['access-control-max-age'], '86400');
   });
+});
+
+test('POST without Source/Target returns the routing message verbatim, not the generic one', async () => {
+  // End-to-end proof that the diagnostic survives utils/clientSafeError.js. If the
+  // message ever stopped starting with 'Access Denied.', the caller would receive
+  // 'An error has occurred.' and the client developer would have nothing to act on.
+  await withSilencedTenantLog(() =>
+    withServer(app, async (port) => {
+      const res = await request(port, {
+        method: 'POST',
+        path: '/DBAPI/ProcessRequest',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ActionCode: 'A',
+          ViewName: 'V',
+          ClientIP: '1.1.1.1',
+          JsonReq: {},
+          Notes: 'N'
+        })
+      });
+
+      assert.equal(res.status, 200, 'the always-200 contract is unchanged');
+      const body = JSON.parse(res.body);
+      assert.equal(body, Messages.MISSING_ROUTE_FIELDS);
+      assert.notEqual(body, GENERIC_MESSAGE, 'must not be swallowed by the redaction allowlist');
+    })
+  );
+});
+
+test('POST with an unconfigured Source/Target echoes the values the client sent', async () => {
+  await withSilencedTenantLog(() =>
+    withServer(app, async (port) => {
+      const res = await request(port, {
+        method: 'POST',
+        path: '/DBAPI/ProcessRequest',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ActionCode: 'A',
+          ViewName: 'V',
+          ClientIP: '1.1.1.1',
+          JsonReq: { JHeader: { Source: 'GhostApp', Target: 'DBAPI' } },
+          Notes: 'N'
+        })
+      });
+
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.ok(body.startsWith(Messages.UNKNOWN_ROUTE));
+      assert.match(body, /Source:GhostApp/);
+      // The configured routes must NOT be enumerated to an anonymous caller.
+      assert.ok(!body.includes('NativeApp'), 'other applications must not be disclosed');
+      assert.ok(!body.includes('elite_main'), 'nor internal connection names');
+    })
+  );
 });

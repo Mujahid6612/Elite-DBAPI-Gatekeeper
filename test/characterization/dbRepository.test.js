@@ -14,8 +14,7 @@ const dbRepository = require('../../repositories/dbRepository');
 const oracleRepository = require('../../repositories/oracleRepository');
 const sqlServerRepository = require('../../repositories/sqlServerRepository');
 
-const OLEDB_MESSAGE =
-  'OLE DB (dbType=0) has no portable Node.js equivalent and is not used by the supplied config.xml.';
+const OLEDB_MESSAGE = 'OLE DB (dbType=0) has no portable Node.js equivalent and is not used by any configured block.';
 
 /** Swaps both driver `execute` functions for recorders, restoring them afterwards. */
 async function withStubbedDrivers(run) {
@@ -65,7 +64,20 @@ test('dbType=2 dispatches to Oracle without the connection string', async () => 
       jsonReq: '{}',
       notes: 'N'
     });
-    assert.equal(calls.oracle[0].length, 2);
+    // Third argument is the routed connection, undefined when no route was supplied.
+    assert.equal(calls.oracle[0].length, 3);
+    assert.equal(calls.oracle[0][2], undefined, 'no route means the default pool');
+  });
+});
+
+test('a routed connection is forwarded to the Oracle driver as the third argument', async () => {
+  // This is what makes multi-database routing real: the descriptor resolved from the
+  // request's Source/Target decides which pool executes the procedure.
+  await withStubbedDrivers(async (calls) => {
+    const connection = { name: 'elite_id', envPrefix: 'DB_ELITE_ID', user: 'u', password: 'p', connectString: 'C' };
+    await dbRepository.processDbRequest({ ...request('2'), connection });
+
+    assert.deepEqual(calls.oracle[0][2], connection);
   });
 });
 
@@ -76,6 +88,18 @@ test('dbType=1 dispatches to SQL Server with the connection string first', async
     assert.equal(calls.oracle.length, 0);
     assert.equal(calls.sqlServer[0][0], 'CONN');
     assert.equal(calls.sqlServer[0][1], 'PROC');
+  });
+});
+
+test("a routed connection's connect string wins over the tenant's for SQL Server", async () => {
+  // The tenant's decrypted targetDBConnectionString remains the fallback, so a
+  // deployment that has not routed a SQL Server tenant yet is unaffected.
+  await withStubbedDrivers(async (calls) => {
+    await dbRepository.processDbRequest({
+      ...request('1'),
+      connection: { name: 'legacy_sql', envPrefix: 'DB_LEGACY', connectString: 'ROUTED-CONN' }
+    });
+    assert.equal(calls.sqlServer[0][0], 'ROUTED-CONN');
   });
 });
 

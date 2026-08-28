@@ -7,7 +7,7 @@ const path = require('path');
 /**
  * Builds a duck-typed stand-in for a ConfigReader instance, backed by a throwaway
  * log directory. Characterization tests use this instead of a real ConfigReader so
- * they never touch config.xml and never write into the project's own Log/ tree.
+ * they never touch config/tenants.jsonc and never write into the project's own Log/ tree.
  */
 function makeFakeConfig(overrides = {}) {
   const logRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dbgk-log-'));

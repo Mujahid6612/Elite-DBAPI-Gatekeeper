@@ -1,6 +1,16 @@
 'use strict';
 
 /**
+ * Writes one log line for every request that comes in.
+ *
+ * WHY IT EXISTS: Only the main endpoint used to record anything, so problems on any other route
+ *                left no trace at all.
+ *
+ * ROLE IN THE FLOW: Wraps all routes. Records the status code, how long it took and the caller's
+ *                   IP once the reply has been sent.
+ */
+
+/**
  * One audit entry per HTTP request, recording what the per-tenant content log does
  * not: the response STATUS CODE, the DURATION, the CLIENT IP and the request line.
  *

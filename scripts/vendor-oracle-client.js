@@ -54,12 +54,7 @@ const markerFile = path.join(vendorDir, 'libclntsh.so');
  * `libclntsh.so` itself must survive: it is the plain name ODPI-C dlopen()s, and it
  * is this script's completion marker.
  */
-const PRUNE_PATTERNS = [
-  /\.jar$/,
-  /^libocci/,
-  /^libclntsh\.so\.(?!21\.1$)/,
-  /^libclntshcore\.so\.(?!21\.1$)/
-];
+const PRUNE_PATTERNS = [/\.jar$/, /^libocci/, /^libclntsh\.so\.(?!21\.1$)/, /^libclntshcore\.so\.(?!21\.1$)/];
 
 function log(message) {
   console.log(`[vendor-oracle-client] ${message}`);

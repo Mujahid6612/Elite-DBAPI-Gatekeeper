@@ -1,5 +1,14 @@
 'use strict';
 
+/**
+ * Builds the HTML page returned by the diagnostic URL.
+ *
+ * WHY IT EXISTS: It keeps page markup out of the business logic, and puts every line that could
+ *                show a secret in one file that is easy to review.
+ *
+ * ROLE IN THE FLOW: Called by the diagnostic GET request.
+ */
+
 /** Renders .NET's `Boolean.ToString()`, which is 'True'/'False', not 'true'/'false'. */
 function dotNetBool(value) {
   return value ? 'True' : 'False';

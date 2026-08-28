@@ -1,10 +1,18 @@
 'use strict';
 
 const test = require('node:test');
+
+/**
+ * The passphrase the ORIGINAL .NET app used, kept here only to prove the migrated
+ * cipher still reproduces its output byte for byte. It is no longer a default
+ * anywhere: config/tenants.jsonc is decrypted with CONFIG_ENCRYPTION_KEY from the
+ * environment, precisely because this value is public.
+ */
+const LEGACY_PASSPHRASE = 'SoundViewTechEncryption';
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
-const path = require('path');
-const ConfigReader = require('../config/configReader');
+const tenantRegistry = require('../config/tenantRegistry');
+const Tenant = require('../config/tenant');
 const { decryptString, encryptString } = require('../utils/encryption');
 const { unwrapFromBodyString } = require('../utils/webApiCompat');
 const { parseAdoConnectionString } = require('../repositories/adoConnectionString');
@@ -21,42 +29,36 @@ function sha(text) {
 }
 
 test('legacy PasswordDeriveBytes AES decrypt matches both real project ciphertexts', () => {
-  const p1 = decryptString(TENANT_CIPHER);
-  const p2 = decryptString(WEBCONFIG_CIPHER);
+  const p1 = decryptString(TENANT_CIPHER, LEGACY_PASSPHRASE);
+  const p2 = decryptString(WEBCONFIG_CIPHER, LEGACY_PASSPHRASE);
   assert.equal(sha(p1), EXPECTED_SHA256[0]);
   assert.equal(sha(p2), EXPECTED_SHA256[1]);
-  assert.equal(encryptString(p1), TENANT_CIPHER);
-  assert.equal(encryptString(p2), WEBCONFIG_CIPHER);
+  assert.equal(encryptString(p1, LEGACY_PASSPHRASE), TENANT_CIPHER);
+  assert.equal(encryptString(p2, LEGACY_PASSPHRASE), WEBCONFIG_CIPHER);
 });
 
-test('SELF resolves to its own tenant, and everything else to the wildcard', () => {
-  // CHANGED DELIBERATELY. config.xml used to list the wildcard block first, so `*`
-  // matched before the explicit SELF block and `new ConfigReader('SELF')` returned
-  // company 101 with enableLogging=0. That shadowing made the exception-report path
-  // in processRequestService.logProcessRequestFailure permanently dead: the `3:`
-  // marker fired, but ERRONEOUS-REQUEST and the stack trace were never written,
-  // because they are gated on the SELF tenant's enableLogging.
-  //
-  // The blocks are now ordered SELF first. First-match-wins is unchanged and is
-  // still pinned by test/characterization/configReader.test.js against synthetic
-  // configs in BOTH orders; only the ordering of the real config.xml moved.
-  const configPath = path.join(__dirname, '..', 'config.xml');
-  const normal = new ConfigReader('anything.example', { configPath });
-  const self = new ConfigReader('SELF', { configPath });
+test('the default block serves pre-parse logging, and Source/Target select the database', () => {
+  // REPLACES the old Host-vs-sourceWebsite ordering test. There is no Host matching
+  // any more: config/tenants.jsonc has one `default` block for the work that happens
+  // BEFORE the body is parsed (the REQUEST audit line and the IP gate), and the
+  // database blocks are selected by the Source/Target the client actually sends.
+  const fallback = tenantRegistry.defaultTenant();
+  assert.equal(fallback.companyNum, '999');
+  assert.equal(fallback.enableLogging, true, 'exception reports are gated on this');
 
-  // Ordinary traffic is unaffected: it matches no explicit tenant and falls through
-  // to the wildcard, exactly as before.
-  assert.equal(normal.companyNum, '101');
-  assert.equal(normal.sourceWebsite, '*');
+  const matched = tenantRegistry.resolveTenant('EliteNativeApp', 'DBAPI');
+  assert.equal(matched.companyNum, '101');
+  assert.equal(matched.procName, 'REQUEST_HANDLER.ACTIONS');
 
-  // SELF now reaches its own block, which is what revives exception logging.
-  assert.equal(self.companyNum, '999');
-  assert.equal(self.sourceWebsite, 'SELF');
-  assert.equal(self.enableLogging, true);
+  // MANY-TO-ONE: a second source reaches the very same block.
+  assert.equal(tenantRegistry.resolveTenant('EliteIdWebApp', 'DBAPI'), matched);
+
+  // And an unconfigured pair is refused rather than falling back to some default.
+  assert.equal(tenantRegistry.resolveTenant('Unconfigured', 'DBAPI'), null);
 });
 
 test('star whitelist permits callers when blacklist list is empty', () => {
-  const config = new ConfigReader('localhost');
+  const config = new Tenant({ whitelistedIPs: '*', blacklistedIPs: '' });
   assert.equal(config.isIPWhitelisted('127.0.0.1', true), true);
   assert.equal(config.isIPWhitelisted('127.0.0.1'), false);
   assert.equal(config.isIPBlacklisted('127.0.0.1'), false);

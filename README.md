@@ -11,12 +11,11 @@ EliteDBGateKeeper/
 ├── app.js                       # Express app assembly: middleware pipeline + routes
 ├── server.js                    # Process entrypoint: validate env, DB pool, listen, graceful shutdown
 ├── config/
+│   ├── tenants.jsonc            # THE configuration: default block + one block per database
+│   ├── tenantRegistry.js        # Loads/validates tenants.jsonc; resolves Source+Target
+│   ├── tenant.js                # One block, with typed accessors and the IP gate
 │   ├── env.js                   # All process.env reads, in one place
-│   ├── validateEnv.js           # Fail-fast startup validation of the environment
-│   ├── configReader.js          # ConfigReader: per-tenant view over config.xml
-│   ├── configReaderProvider.js  # The one sanctioned way to construct a ConfigReader
-│   ├── configSource.js          # Reads config.xml from disk (no caching, by design)
-│   ├── xmlSettingsParser.js     # Pure parser for the <appSettings> format
+│   ├── validateEnv.js           # Fail-fast startup validation of environment + tenants.jsonc
 │   └── ipAccessPolicy.js        # Whitelist/blacklist matching, incl. the '*' recursion
 ├── constants/
 │   └── index.js                 # Enums & fixed message strings
@@ -122,7 +121,135 @@ asserts that `.env.example` documents exactly the set of variables the code actu
 control. Note that an over-limit request currently surfaces as a **500**, not a 413, because the error handler
 returns the generic Web API payload for every unhandled error.
 
-`config.xml` is intentionally retained in its original XML format and is re-read from disk on every `ConfigReader` construction, matching the C# implementation. The DB connection string remains encrypted with the project's legacy AES/Rijndael scheme.
+All configuration lives in [`config/tenants.jsonc`](config/tenants.jsonc). The XML layer
+(`config.xml`, `ConfigReader`, and its parser) has been removed: blocks are now selected
+by the `Source`/`Target` the client sends rather than by the request Host.
+
+## Database routing
+
+Everything is configured in [`config/tenants.jsonc`](config/tenants.jsonc). **Comments are
+permitted in that file** — hence the `.jsonc` extension, which is what stops an editor
+flagging every one as a syntax error — so it explains its own values in place, including why several fields are deliberately left empty. The parser
+([`utils/jsonWithComments.js`](utils/jsonWithComments.js)) is string-aware rather than a
+regex, because `connectionString` holds base64 and a value can legitimately contain `//`.
+
+A request is routed by the `Source` and `Target` values inside `JsonReq.JHeader`:
+
+```
+(Source, Target)  ->  a database block  ->  credentials  ->  Oracle
+```
+
+```jsonc
+{
+  "default": {                       // used BEFORE the body is parsed — see below
+    "projectName": "WebAPI Itself",
+    "companyNum": "999",
+    "whitelistedIPs": "*",
+    "enableLogging": true,
+    "logType": 1,
+    "logPath": "~/Log"
+  },
+
+  "databases": [
+    {
+      "projectName": "Elite Production Database",
+      "sources": ["EliteNativeApp", "EliteIdWebApp"],
+      "target": "DBAPI",
+      "companyNum": "101",
+      "whitelistedIPs": "*",
+      "blacklistedIPs": "",
+      "enableLogging": true,
+      "apiUserName": "",
+      "apiPassword": "",
+      "connectionString": "",
+      "dbType": 2,
+      "driverType": 0,
+      "procName": "REQUEST_HANDLER.ACTIONS",
+      "logType": 0,
+      "logPath": "~/Log"
+    }
+  ]
+}
+```
+
+### Many-to-one is the point
+
+A block lists **every source that shares it**. All three apps above reach the same
+database with the same `companyNum`, `procName` and audit settings. One-to-one is just
+a block with a single source. The same source may also appear on several blocks with
+different targets (`AppA/DBAPI` and `AppA/REPORTING`).
+
+Matching is **case-insensitive**, and an unconfigured pair is **refused** — never
+served from a default, because that would send one app's traffic to another's database.
+
+### Why there is a `default` block
+
+The audit log and the IP gate run **before the body is parsed** — the `REQUEST` line and
+the `-1:` marker come first, and that order is contractual. `Source` and `Target` do not
+exist yet at that point, so the `default` block supplies `logType`, `logPath` and the IP
+policy for those two steps. The matched block takes over for everything after the parse.
+It is also the tenant for routes that carry no envelope: FlightView, the diagnostic GET,
+the access log and 404s.
+
+### Every field
+
+| Field | Required | What it does |
+| --- | --- | --- |
+| `projectName` | **yes** | The block's identifier. Appears in validation errors, startup log lines and health entries |
+| `sources` | **yes** | Array of application names this block serves. Listing several is many-to-one |
+| `target` | **yes** | The logical database role. `(source, target)` is the lookup key |
+| `companyNum` | | Bound to the `pCompanyNum` stored-procedure parameter. Never taken from the request body |
+| `procName` | | The stored procedure to call, e.g. `REQUEST_HANDLER.ACTIONS` |
+| `dbType` | | `2` Oracle, `1` SQL Server (needs `npm install mssql`), `0` OLE DB — rejected explicitly |
+| `whitelistedIPs` / `blacklistedIPs` | | Comma-separated exact matches, or `*`. No CIDR |
+| `enableLogging` | | Gates the REQUEST/RESPONSE audit blocks. The numeric markers fire regardless |
+| `apiUserName` / `apiPassword` | | Body credential check. **Skipped entirely unless BOTH are set** |
+| `connectionString` | | Encrypted ADO string — see below |
+| `envPrefix` | | Alternative to `connectionString` — see below |
+| `poolMax` | | Oracle session ceiling for this database. Positive whole number |
+| `logType` | | `0` → `.html`, `1` → `.txt`, `2` → console |
+| `logPath` | | Base directory. `~/Log` resolves against `LOG_ROOT` |
+| `driverType` | | **Unread.** Carried over from the .NET enum; kept so the value is not lost |
+| `description` | | **Unread.** A leftover escape hatch from before comments were supported. Prefer a `//` comment |
+
+Any other field is **rejected at startup**. A typo like `"procname"` would otherwise be
+silently ignored and the block would run with a default nobody chose.
+
+### Three ways a block gets its credentials
+
+| In the block | Credentials come from | Use when |
+|---|---|---|
+| `"connectionString": "<ciphertext>"` | decrypted ADO string, split into user / password / Data Source | the connection details belong with the config |
+| `"envPrefix": "DB_ELITE_ID"` | `DB_ELITE_ID_USER` / `_PASSWORD` / `_CONNECT_STRING` | the platform's secret store is the source of truth |
+| neither | `ORACLE_USER` / `ORACLE_PASSWORD` / `ORACLE_CONNECTION` | the single pre-existing database |
+
+Setting both `connectionString` and `envPrefix` is rejected at startup.
+
+**Pool identity is the credentials, not the block name.** Blocks resolving to the same
+database share one Oracle pool, so `instances × blocks × poolMax` does not multiply for
+no reason. `"poolMax": 2` on a block caps that database specifically.
+
+### Encrypting a connection string
+
+```bash
+npm run encrypt-secret -- "Data Source=ELDevWan;user id=APIUSER;password=secret;"
+```
+
+The passphrase comes from **`CONFIG_ENCRYPTION_KEY` in the environment**, never from the
+repository. That is what makes committing the ciphertext safe — the legacy scheme kept
+its passphrase in `configReader.js` beside the ciphertext, so anyone with a clone could
+decrypt it. Startup fails by name if a block carries ciphertext and no key is set.
+
+The tool verifies the value round-trips before printing it, and accepts `-` to read the
+plaintext from stdin so it stays out of your shell history.
+
+### Validation happens at startup, not at first request
+
+`validateEnv` refuses to start on: a missing `default` block, a block with no sources or
+target, a source claimed by two blocks, an unknown field (a typo would otherwise run with
+a default nobody chose), both credential styles at once, a non-positive `poolMax`, a
+referenced environment variable that is unset, or ciphertext with no `CONFIG_ENCRYPTION_KEY`.
+Every problem is reported in one message rather than one per restart.
 
 ## Database
 
@@ -173,5 +300,5 @@ deployment behaves exactly as before.
 
 ## Security note
 
-`config.xml` and `.env` contain real credentials/secrets for this deployment. Rotate them if this repository or its history has ever been shared outside your team, and never commit a populated `.env`.
+`.env` contains real credentials for this deployment and must never be committed. `config/tenants.jsonc` IS committed and is safe to be, because it holds only ciphertext and variable names — the passphrase lives in `CONFIG_ENCRYPTION_KEY`. The **legacy** `config.xml` ciphertext was decryptable with key material hardcoded in the repository, so anything encrypted under the old passphrase must be treated as compromised and rotated.
 # Elite-DBAPI-Gatekeeper

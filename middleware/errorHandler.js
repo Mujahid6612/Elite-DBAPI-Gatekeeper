@@ -1,5 +1,14 @@
 'use strict';
 
+/**
+ * The last-resort handler for errors nothing else caught.
+ *
+ * WHY IT EXISTS: Without it an unexpected crash returns nothing useful to the caller and leaves no
+ *                record for anyone to investigate.
+ *
+ * ROLE IN THE FLOW: Runs at the very end of the pipeline, only when a request has already failed.
+ */
+
 const envConfig = require('../config/env');
 const appLogger = require('../utils/appLogger');
 

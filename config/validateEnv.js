@@ -1,6 +1,17 @@
 'use strict';
 
+/**
+ * Checks the configuration at startup and refuses to start if anything is wrong.
+ *
+ * WHY IT EXISTS: A missing password should stop a deployment immediately, not fail one customer's
+ *                request days later.
+ *
+ * ROLE IN THE FLOW: Runs once, before the server accepts any traffic. Reports every problem at
+ *                   once rather than one per restart.
+ */
+
 const envConfig = require('./env');
+const tenantRegistry = require('./tenantRegistry');
 const appLogger = require('../utils/appLogger');
 
 /**
@@ -88,6 +99,46 @@ function collectProblems() {
     if (!String(envConfig[field] || '').trim()) {
       problems.push(`${variableName} is required to create the Oracle connection pool but is empty or unset`);
     }
+  }
+
+  problems.push(...collectRoutingProblems());
+
+  return problems;
+}
+
+/**
+ * Validates the database routing map and every credential it references.
+ *
+ * The point is that a routing mistake fails the DEPLOY rather than the first request
+ * that happens to use the broken route. Without this, adding a connection whose
+ * DB_X_PASSWORD was never set in the platform's environment looks completely healthy
+ * until the one source mapped to it sends traffic - potentially days later, and only
+ * for that source.
+ *
+ * Loading the registry is itself part of the check: readConnectionRegistry throws a
+ * ConfigurationError listing every structural problem at once, and that message is
+ * surfaced here verbatim rather than being reduced to "could not load".
+ */
+function collectRoutingProblems() {
+  let registry;
+  try {
+    registry = tenantRegistry.getTenantRegistry();
+  } catch (error) {
+    // Already a fully-formed, multi-line diagnostic; keep it intact.
+    return [error.message];
+  }
+
+  const problems = tenantRegistry
+    .missingConnectionCredentials(registry)
+    .map((key) => `${key} is required by a block in config/tenants.jsonc but is empty or unset`);
+
+  // A block carrying ciphertext with no passphrase configured would otherwise fail at
+  // the first request that uses that block, naming neither the block nor the variable.
+  if (tenantRegistry.requiresEncryptionKey(registry) && !String(envConfig.configEncryptionKey || '').trim()) {
+    problems.push(
+      'CONFIG_ENCRYPTION_KEY is required because a block in config/tenants.jsonc has an ' +
+        'encrypted connectionString, but it is empty or unset'
+    );
   }
 
   return problems;

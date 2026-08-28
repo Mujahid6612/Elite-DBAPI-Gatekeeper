@@ -17,11 +17,11 @@
  * appLogger warning.
  *
  * Tenant resolution can also fail outright: ConfigReader THROWS for a host that
- * matches no block in config.xml. That is why this returns null rather than a logger
- * for an unknown tenant, and why callers must handle null.
+ * cannot be resolved - an unreadable or invalid config/tenants.jsonc. That is why this
+ * returns null rather than a logger, and why callers must handle null.
  */
 
-const { createConfigReader } = require('../config/configReaderProvider');
+const tenantRegistry = require('../config/tenantRegistry');
 const tenantAuditLog = require('./tenantAuditLog');
 const { requestHost } = require('./requestUtils');
 const appLogger = require('./appLogger');
@@ -54,7 +54,7 @@ function toSafeLogger(inner) {
  */
 function tryCreateRequestLogger(req) {
   try {
-    return toSafeLogger(tenantAuditLog.createTenantLogger(createConfigReader(requestHost(req))));
+    return toSafeLogger(tenantAuditLog.createTenantLogger(tenantRegistry.defaultTenant()));
   } catch (error) {
     // An unknown tenant is expected for stray traffic; do not escalate it.
     appLogger.warn('Audit logging unavailable for request', {

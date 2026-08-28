@@ -13,6 +13,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const tenantRegistry = require('../../config/tenantRegistry');
 
 const projectRoot = path.join(__dirname, '..', '..');
 // `scripts/` is dev-only tooling whose process.env reads are stub knobs, not
@@ -36,6 +37,13 @@ function environmentKeysReadBySource() {
     const source = fs.readFileSync(file, 'utf8');
     for (const match of source.matchAll(/process\.env\.([A-Z0-9_]+)/g)) keys.add(match[1]);
   }
+
+  // Per-connection credentials are read DYNAMICALLY, as process.env[`${prefix}_USER`]
+  // in config/env.js, so the literal-name scan above cannot see them. Deriving them
+  // from the routing map instead makes this check stronger rather than weaker: adding
+  // a block to config/tenants.jsonc now REQUIRES documenting its variables here.
+  for (const key of tenantRegistry.requiredConnectionEnvKeys()) keys.add(key);
+
   return keys;
 }
 

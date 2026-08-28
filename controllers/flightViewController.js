@@ -1,5 +1,14 @@
 'use strict';
 
+/**
+ * Handles the /DBAPI/FlightView web requests.
+ *
+ * WHY IT EXISTS: The app offers flight information that comes from an outside company, not from our database.
+ *
+ * ROLE IN THE FLOW: A thin layer: reads the query string, calls the service that does the work,
+ *                   sends back the reply.
+ */
+
 const flightViewService = require('../services/flightViewService');
 const { sendWebApiString } = require('../utils/webApiCompat');
 const { tryCreateRequestLogger } = require('../utils/requestAuditLog');
@@ -14,7 +23,7 @@ const { tryCreateRequestLogger } = require('../utils/requestAuditLog');
  * FlightView, including how the caller's query parameters were mapped.
  *
  * The logger is null-checked rather than assumed: tryCreateRequestLogger returns
- * null when the request host matches no tenant in config.xml.
+ * null when the tenant configuration cannot be loaded.
  */
 async function getFlightView(req, res, next) {
   const audit = tryCreateRequestLogger(req);

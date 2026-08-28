@@ -1,5 +1,14 @@
 'use strict';
 
+/**
+ * The same job as oracleRepository.js, but for SQL Server.
+ *
+ * WHY IT EXISTS: The original .NET app supported SQL Server, so the ability was kept. No
+ *                configuration block uses it today.
+ *
+ * ROLE IN THE FLOW: Only reached if a block is set to dbType 1. Its driver is not installed by default.
+ */
+
 const { fixNullString } = require('../utils/nullHelpers');
 const { STORED_PROC_PARAMS, RESPONSE_PARAM } = require('./storedProcContract');
 const appLogger = require('../utils/appLogger');

@@ -61,10 +61,7 @@ function getUptimeDuration(startedAt) {
 
 function formatUptime(uptime) {
   if (!uptime) return null;
-  return (
-    `${uptime.days} days, ${uptime.hours} hours, ` +
-    `${uptime.minutes} minutes, ${uptime.seconds} seconds`
-  );
+  return `${uptime.days} days, ${uptime.hours} hours, ` + `${uptime.minutes} minutes, ${uptime.seconds} seconds`;
 }
 
 /**

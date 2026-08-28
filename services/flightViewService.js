@@ -1,5 +1,13 @@
 'use strict';
 
+/**
+ * Fetches flight information from the outside provider and converts it if asked.
+ *
+ * WHY IT EXISTS: Calling another company's service, and turning their XML into JSON, is real work
+ *                that does not belong in a web handler.
+ *
+ * ROLE IN THE FLOW: Called by the FlightView controller.
+ */
 
 const { XMLParser } = require('fast-xml-parser');
 const envConfig = require('../config/env');

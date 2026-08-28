@@ -1,6 +1,15 @@
 'use strict';
 
 /**
+ * Describes the nine parameters the stored procedure takes.
+ *
+ * WHY IT EXISTS: Both database drivers need the same list. Written twice, the two copies would
+ *                eventually disagree and quietly corrupt data.
+ *
+ * ROLE IN THE FLOW: Shared by the Oracle and SQL Server drivers so neither can drift out of step.
+ */
+
+/**
  * The stored-procedure call contract, carried over verbatim from the .NET source.
  *
  * This is ONE business contract that used to be written twice, in two dialects -

@@ -1,5 +1,14 @@
 'use strict';
 
+/**
+ * Unwraps the request body into the text the rest of the code expects.
+ *
+ * WHY IT EXISTS: The original .NET API took the whole request object as a *string*, and long-
+ *                standing clients still send it that way.
+ *
+ * ROLE IN THE FLOW: Runs just before the ProcessRequest controller, on that route only.
+ */
+
 const { unwrapFromBodyString } = require('../utils/webApiCompat');
 
 /**

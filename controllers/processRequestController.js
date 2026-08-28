@@ -1,6 +1,16 @@
 'use strict';
 
-const { createConfigReader } = require('../config/configReaderProvider');
+/**
+ * Handles the main /DBAPI/ProcessRequest web requests.
+ *
+ * WHY IT EXISTS: This is the one endpoint every client app uses for real work, so it needs a
+ *                clear, stable place to live.
+ *
+ * ROLE IN THE FLOW: A thin layer with no business logic. It also decides what a caller sees when
+ *                   something goes wrong.
+ */
+
+const tenantRegistry = require('../config/tenantRegistry');
 const processRequestService = require('../services/processRequestService');
 const { getClientIp, requestHost } = require('../utils/requestUtils');
 const { sendWebApiString } = require('../utils/webApiCompat');
@@ -77,7 +87,9 @@ async function postProcessRequest(req, res, next) {
   let config = null;
 
   try {
-    config = createConfigReader(requestHost(req));
+    // The DEFAULT block: it supplies the pre-parse audit line and the IP gate.
+    // Source/Target inside the body select the database, later in the service.
+    config = tenantRegistry.defaultTenant();
     const observedClientIP = getClientIp(req);
     const response = await processRequestService.handleProcessRequest(config, jsonRequest, observedClientIP);
     return sendWebApiString(req, res, response);

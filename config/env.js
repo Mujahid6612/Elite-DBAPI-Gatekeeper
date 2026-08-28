@@ -1,5 +1,15 @@
 'use strict';
 
+/**
+ * Reads every environment variable the service needs, in one place.
+ *
+ * WHY IT EXISTS: When env vars are read all over the codebase, nobody can tell what a deployment
+ *                actually requires. Reading them here makes that list one file long.
+ *
+ * ROLE IN THE FLOW: Loaded before almost everything else. The values are frozen at startup, so
+ *                   what the process begins with is what it keeps.
+ */
+
 const path = require('path');
 
 // dotenv is resolved separately from being invoked, so that a genuinely absent
@@ -58,6 +68,50 @@ function definedOnly(object) {
 }
 
 /**
+ * The three variables a named database connection is built from. A database declared
+ * in config/tenants.jsonc with `"envPrefix": "DB_ELITE_ID"` therefore reads
+ * DB_ELITE_ID_USER, DB_ELITE_ID_PASSWORD and DB_ELITE_ID_CONNECT_STRING.
+ *
+ * Exported so config/tenantRegistry.js can enumerate exactly which variables the
+ * routing map depends on, without duplicating the naming rule.
+ */
+const CONNECTION_SECRET_SUFFIXES = Object.freeze(['USER', 'PASSWORD', 'CONNECT_STRING']);
+
+/**
+ * Reads one connection's credentials from the environment.
+ *
+ * This is the ONLY dynamic process.env access in the codebase, and it lives here for
+ * the same reason every other read does: config/env.js is the single sanctioned
+ * reader, enforced by the `n/no-process-env` ESLint rule. Keeping it here means a
+ * connection's credentials cannot be sourced from anywhere unreviewed.
+ *
+ * An EMPTY prefix means "use the default ORACLE_* credentials" - the single database
+ * the service used before routing existed. That keeps a deployment that has not split
+ * its databases yet working with no new variables at all.
+ *
+ * Deliberately NOT frozen into the config object above: these are read on demand
+ * because the set of names is not known until config/tenants.jsonc has been parsed.
+ *
+ * @param {string} [envPrefix]
+ * @returns {{user: string, password: string, connectString: string}}
+ */
+function readConnectionSecrets(envPrefix) {
+  const prefix = String(envPrefix || '').trim();
+  if (!prefix) {
+    return {
+      user: process.env.ORACLE_USER || '',
+      password: process.env.ORACLE_PASSWORD || '',
+      connectString: process.env.ORACLE_CONNECTION || ''
+    };
+  }
+  return {
+    user: process.env[`${prefix}_USER`] || '',
+    password: process.env[`${prefix}_PASSWORD`] || '',
+    connectString: process.env[`${prefix}_CONNECT_STRING`] || ''
+  };
+}
+
+/**
  * @typedef {object} EnvConfig
  * @property {number} port
  * @property {string} flightViewUrl
@@ -88,9 +142,29 @@ const envConfig = Object.freeze({
   bodyLimit: (process.env.BODY_LIMIT || '2mb').trim(),
   trustProxy: toBoolean(process.env.TRUST_PROXY, false),
   exposeErrors: toBoolean(process.env.EXPOSE_ERRORS, false),
-  // Oracle pool credentials. Note these are process-wide: every tenant shares one
-  // database identity regardless of its config.xml targetDBConnectionString. That is
-  // pre-existing behavior, flagged in REFACTOR_NOTES.md, and not changed here.
+  /**
+   * Passphrase for the encrypted `connectionString` values in config/tenants.jsonc.
+   *
+   * MUST come from the environment. The legacy scheme hardcoded this passphrase in
+   * config/configReader.js next to the ciphertext it protected, which meant anyone who
+   * could clone the repository could decrypt every connection string in one line - the
+   * file was obfuscated, not encrypted. Reading it from here is what makes committing
+   * the ciphertext actually safe.
+   *
+   * Set it to the legacy value 'SoundViewTechEncryption' to keep existing ciphertext
+   * working during migration; rotate to a new passphrase (and re-encrypt with
+   * `npm run encrypt-secret`) as soon as practical, because the old one is public.
+   *
+   * Required only when a tenant block actually carries a ciphertext - a deployment
+   * using envPrefix or the default ORACLE_* variables needs no key at all.
+   */
+  configEncryptionKey: process.env.CONFIG_ENCRYPTION_KEY || '',
+  // Salt for the key derivation. NOT a secret - it exists to make the derived key
+  // unique per deployment even when two share a passphrase - so it has a default.
+  configEncryptionSalt: process.env.CONFIG_ENCRYPTION_SALT || 'svtlhr',
+  // DEFAULT Oracle credentials, used by any block in config/tenants.jsonc that sets
+  // neither `connectionString` nor `envPrefix` - which is the shipped configuration, so
+  // these remain the credentials nearly every request uses.
   oracleUser: process.env.ORACLE_USER || '',
   oraclePassword: process.env.ORACLE_PASSWORD || '',
   oracleConnectString: process.env.ORACLE_CONNECTION || '',
@@ -147,7 +221,7 @@ const envConfig = Object.freeze({
   logLevel: (process.env.LOG_LEVEL || 'info').trim().toLowerCase(),
   projectRoot: path.resolve(__dirname, '..'),
   /**
-   * Base directory for RELATIVE tenant logPath values (config.xml uses `~/Log`).
+   * Base directory for RELATIVE tenant logPath values (blocks ship `~/Log`).
    * Defaults to projectRoot, which is the historical behavior.
    *
    * Needed because a serverless filesystem is read-only apart from the temp
@@ -161,7 +235,10 @@ const envConfig = Object.freeze({
    * Note the temp directory is per-instance and ephemeral: logs written there are
    * for debugging a live instance, not durable audit retention.
    */
-  logRoot: process.env.LOG_ROOT || path.resolve(__dirname, '..')
+  logRoot: process.env.LOG_ROOT || path.resolve(__dirname, '..'),
+  // Naming rule and reader for per-connection credentials. See the definitions above.
+  CONNECTION_SECRET_SUFFIXES,
+  readConnectionSecrets
 });
 
 module.exports = envConfig;

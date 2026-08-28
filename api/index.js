@@ -1,6 +1,16 @@
 'use strict';
 
 /**
+ * The entry point used when this service runs on Vercel.
+ *
+ * WHY IT EXISTS: Vercel never starts a long-running process, so it never runs server.js. Instead
+ *                it calls this file once per request.
+ *
+ * ROLE IN THE FLOW: The front door in production. It hands every request straight to the same
+ *                   Express app that `npm start` uses locally.
+ */
+
+/**
  * Vercel serverless entrypoint.
  *
  * Vercel never runs server.js: there is no long-lived process to call app.listen()

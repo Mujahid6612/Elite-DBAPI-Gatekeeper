@@ -100,7 +100,7 @@ test('fixNullBoolean truth table — only Y/1/TRUE (any case) and boolean true a
 
 test('fixNullBoolean returns false rather than throwing when toString() throws', () => {
   // The original wrapped its body in try/catch for exactly this case. Unreachable
-  // from config.xml (values are always text), but pinned so CQ-23 cannot silently
+  // from XML (values were always text), but pinned so CQ-23 cannot silently
   // turn a swallowed error into a propagated one.
   const hostile = {
     toString() {

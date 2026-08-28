@@ -1,5 +1,14 @@
 'use strict';
 
+/**
+ * Decides whether a caller's IP address is allowed in.
+ *
+ * WHY IT EXISTS: The allow/deny rules were carried over from the old .NET app and behave unusually
+ *                when set to '*'. Keeping them here makes that behaviour testable on its own.
+ *
+ * ROLE IN THE FLOW: Used by the IP gate, which runs near the start of every request.
+ */
+
 const { fixNullString } = require('../utils/nullHelpers');
 
 /**

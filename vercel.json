@@ -4,8 +4,13 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
-      "includeFiles": "{config.xml,vendor/oracle/**,node_modules/oracledb/build/Release/**}"
+      "includeFiles": "{config/tenants.jsonc,vendor/oracle/**,node_modules/oracledb/build/Release/**}"
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ]
 }

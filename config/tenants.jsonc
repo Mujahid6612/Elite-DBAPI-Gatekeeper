@@ -1,0 +1,80 @@
+// Tenant and database configuration for the Gatekeeper.
+//
+// Comments are permitted here (as in tsconfig.json) — see utils/jsonWithComments.js.
+// A request is routed by the Source and Target inside JsonReq.JHeader:
+//     (Source, Target)  ->  a block below  ->  credentials  ->  Oracle
+// Full field reference: README.md → "Every field".
+{
+  // Used BEFORE the request body is parsed. The REQUEST audit line and the IP gate run
+  // first, and Source/Target are not known until after JSON.parse, so this block
+  // supplies logType, logPath and the IP policy for those two steps. It is also the
+  // tenant for routes that carry no envelope: FlightView, the diagnostic GET, the
+  // access log and 404s. It never dispatches a stored procedure, so it needs no
+  // database, procName or dbType.
+  "default": {
+    "projectName": "WebAPI Itself",
+    "companyNum": "999",
+    "whitelistedIPs": "*",
+    "blacklistedIPs": "", // empty = no addresses explicitly blocked
+    "enableLogging": true,
+    "logType": 1, // 1 = .txt  (0 = .html, 2 = console)
+    "logPath": "~/Log" // relative, so resolved against LOG_ROOT
+  },
+
+  "databases": [
+    {
+      // The identifier. Appears in validation errors, startup log lines and
+      // /DBAPI/Health-Info entries. Name the DATABASE, not one of the apps — several
+      // sources share this block, so an app-shaped name goes stale when you add one.
+      "projectName": "Elite Production Database",
+
+      // MANY-TO-ONE: every source listed reaches this same database with the same
+      // companyNum, procName and audit settings, and they share ONE Oracle pool.
+      // Add a name here to let another app in; add a whole block to point an app
+      // somewhere else. Matching is case-insensitive.
+      "sources": ["EliteNativeApp", "EliteIdWebApp", "NativeApp", "WebApp"],
+      "target": "DBAPI",
+
+      "companyNum": "101", // bound to pCompanyNum; never taken from the request body
+
+      "whitelistedIPs": "*", // "*" admits every caller — the gate is effectively open
+      "blacklistedIPs": "", // empty = no addresses explicitly blocked
+
+      "enableLogging": true, // gates the REQUEST/RESPONSE blocks; markers fire regardless
+
+      // EMPTY ON PURPOSE — the body credential check is SKIPPED unless BOTH are set.
+      // Setting only one silently disables it, which is why they are left as a pair.
+      // The clients do send APILogin/APIPassword; nothing verifies them here today.
+      "apiUserName": "",
+      "apiPassword": "",
+
+      // EMPTY ON PURPOSE — this block falls back to the environment:
+      //     ORACLE_USER / ORACLE_PASSWORD / ORACLE_CONNECTION
+      // i.e. exactly the single database the service used before routing existed, so
+      // introducing this file changed which requests are ACCEPTED, not where they go.
+      //
+      // To point this block at its own database, put an ENCRYPTED ADO string here:
+      //     npm run encrypt-secret -- "Data Source=X;user id=U;password=P;"
+      // The passphrase is CONFIG_ENCRYPTION_KEY, read from the environment and never
+      // from this repository — that is what makes committing ciphertext safe.
+      //
+      // Alternative: set "envPrefix": "DB_ELITE_MAIN" instead and provide
+      // DB_ELITE_MAIN_USER / _PASSWORD / _CONNECT_STRING in the environment.
+      // Set connectionString OR envPrefix — never both; startup rejects that.
+      "connectionString": "",
+
+      "dbType": 2, // 2 = Oracle  (1 = SQL Server, needs `npm install mssql`)
+      "driverType": 0, // unread; carried over from the .NET enum so the value is not lost
+
+      "procName": "REQUEST_HANDLER.ACTIONS", // the stored procedure this block calls
+
+      "logType": 0, // 0 = .html -> Log/101/<year>/<date>.html
+      "logPath": "~/Log" // relative, so resolved against LOG_ROOT
+
+      // Optional, not set here:
+      //   "poolMax": 2   Oracle session ceiling for THIS database. Sessions total
+      //                  (instances x databases x poolMax), so set it on serverless.
+      //   "envPrefix"    see the connectionString note above
+    }
+  ]
+}

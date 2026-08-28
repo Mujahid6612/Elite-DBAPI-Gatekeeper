@@ -8,7 +8,7 @@
  * code, the request duration and the client IP.
  *
  * The middleware is exercised through fake req/res doubles rather than a live
- * server, so these assertions do not depend on a port, on config.xml, or on the
+ * server, so these assertions do not depend on a port, on the tenant configuration, or on the
  * project's own Log/ tree.
  */
 
@@ -91,7 +91,7 @@ test('a credential in a query string is redacted, as it is in a body', () => {
 });
 
 test('an unresolvable tenant is skipped rather than throwing', () => {
-  // tryCreateRequestLogger returns null for a host matching no config.xml block.
+  // tryCreateRequestLogger returns null when the tenant configuration cannot load.
   const accessLog = loadWithStub(null);
   const res = fakeRes();
 

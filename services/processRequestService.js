@@ -1,9 +1,19 @@
 'use strict';
 
-const { createConfigReader } = require('../config/configReaderProvider');
+/**
+ * The main request pipeline: checks, routing and the database call, in order.
+ *
+ * WHY IT EXISTS: This is the heart of the service. The exact order of the steps is a contract,
+ *                because it is visible in the audit log files.
+ *
+ * ROLE IN THE FLOW: Called by the ProcessRequest controller. Everything of consequence happens here.
+ */
+
+const tenantRegistry = require('../config/tenantRegistry');
 const tenantAuditLog = require('../utils/tenantAuditLog');
+const appLogger = require('../utils/appLogger');
 const dbRepository = require('../repositories/dbRepository');
-const { Messages, LibraryConstants } = require('../constants');
+const { Messages } = require('../constants');
 const { fixNullString } = require('../utils/nullHelpers');
 const { redactSecrets } = require('../utils/logRedaction');
 const { requireToken, tokenToObjectString, tokenToString } = require('../parsers/requestTokenParser');
@@ -18,7 +28,7 @@ const { renderDiagnosticSummary } = require('./diagnosticSummaryView');
  * string and API password to any caller that clears the IP gate. See
  * MIGRATION_ANALYSIS.md before removing this behavior.
  */
-function getDiagnosticSummary(host, clientIP, createConfig = createConfigReader) {
+function getDiagnosticSummary(host, clientIP, createConfig = () => tenantRegistry.defaultTenant()) {
   const config = createConfig(host);
   if (!config.isIPWhitelisted(clientIP, true)) throw new Error(Messages.BLACKLISTED_MESSAGE);
   return renderDiagnosticSummary(config, clientIP, host);
@@ -72,7 +82,7 @@ function requestHeader(jObject) {
  * FIXED: the check previously looked ONLY at the TOP LEVEL of the body, but the
  * EliteApp client puts `APILogin`/`APIPassword` inside `JsonReq.JHeader`
  * (src/Services/apiService.ts). The two never met. That went unnoticed only because
- * both supplied tenants leave `apiUserName`/`apiPassword` blank in config.xml, so the
+ * the shipped block leaves `apiUserName`/`apiPassword` blank, so the
  * caller below short-circuits and the check never runs. The moment a tenant enabled
  * credentials - the exact moment the control is supposed to start protecting
  * something - every request from the app would have failed with the .NET
@@ -90,6 +100,58 @@ function requireCredential(jObject, key) {
   if (header && Object.prototype.hasOwnProperty.call(header, key)) return requireToken(header, key);
 
   return requireToken(jObject, key);
+}
+
+/**
+ * Resolves which database this request is for, from the JHeader `Source` and `Target`.
+ *
+ * THE ROUTING CONTRACT, and why it is strict. `Source` names the calling application
+ * ('NativeApp', 'WebApp'); `Target` names the logical database role ('DBAPI'). The
+ * pair selects a block in config/tenants.jsonc. A request that does not
+ * carry both, or whose pair is not configured HERE, is refused rather than quietly
+ * served from some default: silently falling back would send one application's
+ * traffic to another application's database, which is far worse than a clear refusal
+ * the client developer can act on.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO. It does not let the caller choose an
+ * ENVIRONMENT. Each deployment holds only its own environment's credentials, so a
+ * dev instance cannot reach a production database - the variables are not present in
+ * it. `JsonReq` is client-controlled, and routing across that boundary on a body
+ * field would make a deployment boundary into a request parameter.
+ *
+ * The MATCHED BLOCK then supplies companyNum, procName, dbType and the database. The
+ * `default` block covered only the pre-parse audit line and the IP gate, because
+ * Source/Target were not known yet.
+ *
+ * @param {import('../types').ProcessRequestPayload} jObject
+ * @returns {{name: string, user: string, password: string, connectString: string}}
+ * @throws {Error} with a client-safe message when the pair is absent or unconfigured
+ */
+function resolveRequestConnection(jObject) {
+  const header = requestHeader(jObject) || {};
+  const source = fixNullString(tokenToObjectString(header.Source));
+  const target = fixNullString(tokenToObjectString(header.Target));
+
+  if (source === '' || target === '') {
+    throw new Error(Messages.MISSING_ROUTE_FIELDS);
+  }
+
+  const block = tenantRegistry.resolveTenant(source, target);
+  if (!block) {
+    // The received values are echoed because they are the caller's OWN data and are
+    // the single most useful thing for diagnosing a client misconfiguration. The set
+    // of configured routes is deliberately NOT echoed - that would enumerate the
+    // other applications on this deployment to an anonymous caller. It goes to the
+    // application log instead.
+    appLogger.warn('Rejected request with an unconfigured Source/Target pair', {
+      source,
+      target,
+      configured: tenantRegistry.describeRoutes()
+    });
+    throw new Error(`${Messages.UNKNOWN_ROUTE} [Source:${source}, Target:${target}]`);
+  }
+
+  return block;
 }
 
 /**
@@ -192,13 +254,24 @@ async function handleProcessRequest(config, jsonRequest, observedClientIP) {
 
   const fields = extractRequestFields(jObject, config);
   assertApiCredentials(jObject, config);
+
+  // AFTER credentials, deliberately. An unauthenticated caller must not be able to
+  // probe which Source/Target pairs this deployment serves by reading back which of
+  // them produce a different message.
+  const block = resolveRequestConnection(jObject);
+
   logExtractedFields(audit, config, jsonRequest, fields);
 
+  // The MATCHED BLOCK owns everything database-related: which database, which stored
+  // procedure, which company number. `config` (the default block) supplied only the
+  // pre-parse audit line and the IP gate, because Source/Target were not known yet.
   const dbResult = await dbRepository.processDbRequest({
-    connectionString: config.targetDBConnectionString,
-    dbType: config.dbType,
-    procName: config.procName,
-    ...fields
+    connection: tenantRegistry.connectionFor(block),
+    connectionString: block.targetDBConnectionString,
+    dbType: block.dbType,
+    procName: block.procName,
+    ...fields,
+    companyNum: block.companyNum
   });
 
   const response = toResponseText(dbResult.output);
@@ -218,7 +291,7 @@ function logProcessRequestFailure(error, config, jsonRequest, req) {
   const audit = tenantAuditLog.createTenantLogger(config);
   audit.log(`3:${audit.lineBreak}`);
 
-  const dummyConfig = createConfigReader(LibraryConstants.SELF_SOURCE_WEBSITE_NAME);
+  const dummyConfig = tenantRegistry.defaultTenant();
   if (dummyConfig && dummyConfig.enableLogging) {
     const dummyAudit = tenantAuditLog.createTenantLogger(dummyConfig);
     dummyAudit.log(`ERRONEOUS-REQUEST:${dummyAudit.lineBreak}${redactSecrets(jsonRequest)}`);
