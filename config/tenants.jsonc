@@ -61,7 +61,7 @@
       // Alternative: set "envPrefix": "DB_ELITE_MAIN" instead and provide
       // DB_ELITE_MAIN_USER / _PASSWORD / _CONNECT_STRING in the environment.
       // Set connectionString OR envPrefix — never both; startup rejects that.
-      "connectionString": "GrfZ5a946KcrALKS6s3PTE2ip0p6DAqY1j/kQuRBhDNqxa8qHzyXoE8/OF8yc3B6OLyybZ9R03s1nmimGIz/YQ==",
+      "connectionString": "l8uzBxcILzkWty4/dEw9BFc/JFDt5Vy88vm3OEuTLyAeYyrdCz7O52Pe/qZHXcdB/PKu2tjMpKbEiTvgLIU72A==",
 
       "dbType": 2, // 2 = Oracle  (1 = SQL Server, needs `npm install mssql`)
       "driverType": 0, // unread; carried over from the .NET enum so the value is not lost
@@ -80,17 +80,17 @@
     //   "projectName": "Elite Id app",
     //   "sources": ["IDApp"],
     //   "target": "IDAPI",
-    //   "companyNum": "101", 
-    //   "whitelistedIPs": "*", 
-    //   "blacklistedIPs": "", 
+    //   "companyNum": "101",
+    //   "whitelistedIPs": "*",
+    //   "blacklistedIPs": "",
     //   "apiUserName": "user@webapis.com",
     //   "apiPassword": "12345",
     //   "connectionString": "",
-    //   "dbType": 2, 
-    //   "driverType": 0, 
-    //   "procName": "REQUEST_HANDLER.ACTIONS", 
-    //   "logType": 0, 
-    //   "logPath": "~/Log" 
+    //   "dbType": 2,
+    //   "driverType": 0,
+    //   "procName": "REQUEST_HANDLER.ACTIONS",
+    //   "logType": 0,
+    //   "logPath": "~/Log"
     // }
   ]
 }

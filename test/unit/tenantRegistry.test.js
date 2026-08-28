@@ -343,3 +343,44 @@ test('a block carrying ciphertext is reported as needing an encryption key', () 
     'a deployment using envPrefix or the ORACLE_* defaults needs no key at all'
   );
 });
+
+test('a ciphertext that will not decrypt is reported by block name at startup', () => {
+  // The failure this catches: a key that is SET but WRONG passes the "is it present?"
+  // check, starts the service, and then fails every request with an opaque `bad
+  // decrypt` that reaches the client as "An error has occurred." Attempting the
+  // decryption at startup names the block instead.
+  const encryptedWithAnotherKey = encryptString('Data Source=X;user id=U;password=P;', 'a-different-key');
+  const registry = tenantRegistry.readTenantRegistry(
+    writeConfig({
+      databases: [
+        {
+          projectName: 'Elite Production Database',
+          sources: ['A'],
+          target: 'T',
+          ...DB_DEFAULTS,
+          connectionString: encryptedWithAnotherKey
+        }
+      ]
+    })
+  );
+
+  assert.deepEqual(tenantRegistry.undecryptableBlocks(registry), ['Elite Production Database']);
+});
+
+test('a block whose ciphertext decrypts cleanly is not reported', () => {
+  const registry = tenantRegistry.readTenantRegistry(
+    writeConfig({
+      databases: [
+        {
+          projectName: 'ok',
+          sources: ['A'],
+          target: 'T',
+          ...DB_DEFAULTS,
+          connectionString: encryptString('Data Source=X;user id=U;password=P;')
+        }
+      ]
+    })
+  );
+
+  assert.deepEqual(tenantRegistry.undecryptableBlocks(registry), []);
+});

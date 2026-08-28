@@ -330,6 +330,31 @@ function missingConnectionCredentials(registry = getTenantRegistry()) {
   return [...missing].sort();
 }
 
+/**
+ * Names every block whose `connectionString` will not decrypt with the configured
+ * CONFIG_ENCRYPTION_KEY.
+ *
+ * WHY THIS EXISTS. Checking only that a key is PRESENT is not enough: a key that is set
+ * but WRONG passes that check, starts the service, and then fails every request with an
+ * opaque `bad decrypt` that the client sees as "An error has occurred." Actually
+ * attempting the decryption at startup turns a silent runtime failure into a named
+ * deployment failure - which is the promise the rest of this validation makes.
+ *
+ * @returns {string[]} projectName of each block that cannot be decrypted
+ */
+function undecryptableBlocks(registry = getTenantRegistry()) {
+  const failed = [];
+  for (const block of registry.blocks) {
+    if (String(block._block.connectionString || '').trim() === '') continue;
+    try {
+      block.targetDBConnectionString;
+    } catch {
+      failed.push(block.projectName);
+    }
+  }
+  return failed;
+}
+
 /** True when at least one block carries ciphertext, so a passphrase is required. */
 function requiresEncryptionKey(registry = getTenantRegistry()) {
   return registry.blocks.some((block) => String(block._block.connectionString || '').trim() !== '');
@@ -346,6 +371,7 @@ module.exports = {
   requiredConnectionEnvKeys,
   missingConnectionCredentials,
   requiresEncryptionKey,
+  undecryptableBlocks,
   connectionFor,
   defaultTenantsPath,
   routeKey,

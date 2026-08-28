@@ -141,6 +141,16 @@ function collectRoutingProblems() {
     );
   }
 
+  // A key that is set but WRONG would otherwise pass every check above, start the
+  // service, and fail each request with an opaque `bad decrypt`.
+  for (const name of tenantRegistry.undecryptableBlocks(registry)) {
+    problems.push(
+      `the connectionString for block "${name}" cannot be decrypted with the configured ` +
+        'CONFIG_ENCRYPTION_KEY. Either the key is wrong, or the value was encrypted with a ' +
+        'different one - re-encrypt it with `npm run encrypt-secret`'
+    );
+  }
+
   return problems;
 }
 
