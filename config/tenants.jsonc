@@ -75,7 +75,7 @@
       //   "poolMax": 2   Oracle session ceiling for THIS database. Sessions total
       //                  (instances x databases x poolMax), so set it on serverless.
       //   "envPrefix"    see the connectionString note above
-    },
+    }
     // {
     //   "projectName": "Elite Id app",
     //   "sources": ["IDApp"],
