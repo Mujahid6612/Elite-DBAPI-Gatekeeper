@@ -76,21 +76,21 @@
       //                  (instances x databases x poolMax), so set it on serverless.
       //   "envPrefix"    see the connectionString note above
     },
-    {
-      "projectName": "Elite Id app",
-      "sources": ["IDApp"],
-      "target": "IDAPI",
-      "companyNum": "101", 
-      "whitelistedIPs": "*", 
-      "blacklistedIPs": "", 
-      "apiUserName": "user@webapis.com",
-      "apiPassword": "12345",
-      "connectionString": "",
-      "dbType": 2, 
-      "driverType": 0, 
-      "procName": "REQUEST_HANDLER.ACTIONS", 
-      "logType": 0, 
-      "logPath": "~/Log" 
-    }
+    // {
+    //   "projectName": "Elite Id app",
+    //   "sources": ["IDApp"],
+    //   "target": "IDAPI",
+    //   "companyNum": "101", 
+    //   "whitelistedIPs": "*", 
+    //   "blacklistedIPs": "", 
+    //   "apiUserName": "user@webapis.com",
+    //   "apiPassword": "12345",
+    //   "connectionString": "",
+    //   "dbType": 2, 
+    //   "driverType": 0, 
+    //   "procName": "REQUEST_HANDLER.ACTIONS", 
+    //   "logType": 0, 
+    //   "logPath": "~/Log" 
+    // }
   ]
 }
