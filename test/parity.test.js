@@ -46,12 +46,12 @@ test('the default block serves pre-parse logging, and Source/Target select the d
   assert.equal(fallback.companyNum, '999');
   assert.equal(fallback.enableLogging, true, 'exception reports are gated on this');
 
-  const matched = tenantRegistry.resolveTenant('EliteNativeApp', 'DBAPI');
+  const matched = tenantRegistry.resolveTenant('NativeApp', 'DBAPI');
   assert.equal(matched.companyNum, '101');
   assert.equal(matched.procName, 'REQUEST_HANDLER.ACTIONS');
 
   // MANY-TO-ONE: a second source reaches the very same block.
-  assert.equal(tenantRegistry.resolveTenant('EliteIdWebApp', 'DBAPI'), matched);
+  assert.equal(tenantRegistry.resolveTenant('WebApp', 'DBAPI'), matched);
 
   // And an unconfigured pair is refused rather than falling back to some default.
   assert.equal(tenantRegistry.resolveTenant('Unconfigured', 'DBAPI'), null);

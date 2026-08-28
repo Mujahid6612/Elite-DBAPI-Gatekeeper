@@ -26,13 +26,13 @@
       // The identifier. Appears in validation errors, startup log lines and
       // /DBAPI/Health-Info entries. Name the DATABASE, not one of the apps — several
       // sources share this block, so an app-shaped name goes stale when you add one.
-      "projectName": "Elite Production Database",
+      "projectName": "Elite native and web apps",
 
       // MANY-TO-ONE: every source listed reaches this same database with the same
       // companyNum, procName and audit settings, and they share ONE Oracle pool.
       // Add a name here to let another app in; add a whole block to point an app
       // somewhere else. Matching is case-insensitive.
-      "sources": ["EliteNativeApp", "EliteIdWebApp", "NativeApp", "WebApp"],
+      "sources": ["NativeApp", "WebApp"],
       "target": "DBAPI",
 
       "companyNum": "101", // bound to pCompanyNum; never taken from the request body
@@ -45,8 +45,8 @@
       // EMPTY ON PURPOSE — the body credential check is SKIPPED unless BOTH are set.
       // Setting only one silently disables it, which is why they are left as a pair.
       // The clients do send APILogin/APIPassword; nothing verifies them here today.
-      "apiUserName": "",
-      "apiPassword": "",
+      "apiUserName": "user@webapis.com",
+      "apiPassword": "12345",
 
       // EMPTY ON PURPOSE — this block falls back to the environment:
       //     ORACLE_USER / ORACLE_PASSWORD / ORACLE_CONNECTION
@@ -61,7 +61,7 @@
       // Alternative: set "envPrefix": "DB_ELITE_MAIN" instead and provide
       // DB_ELITE_MAIN_USER / _PASSWORD / _CONNECT_STRING in the environment.
       // Set connectionString OR envPrefix — never both; startup rejects that.
-      "connectionString": "",
+      "connectionString": "GrfZ5a946KcrALKS6s3PTE2ip0p6DAqY1j/kQuRBhDNqxa8qHzyXoE8/OF8yc3B6OLyybZ9R03s1nmimGIz/YQ==",
 
       "dbType": 2, // 2 = Oracle  (1 = SQL Server, needs `npm install mssql`)
       "driverType": 0, // unread; carried over from the .NET enum so the value is not lost
@@ -75,6 +75,22 @@
       //   "poolMax": 2   Oracle session ceiling for THIS database. Sessions total
       //                  (instances x databases x poolMax), so set it on serverless.
       //   "envPrefix"    see the connectionString note above
+    },
+    {
+      "projectName": "Elite Id app",
+      "sources": ["IDApp"],
+      "target": "IDAPI",
+      "companyNum": "101", 
+      "whitelistedIPs": "*", 
+      "blacklistedIPs": "", 
+      "apiUserName": "user@webapis.com",
+      "apiPassword": "12345",
+      "connectionString": "",
+      "dbType": 2, 
+      "driverType": 0, 
+      "procName": "REQUEST_HANDLER.ACTIONS", 
+      "logType": 0, 
+      "logPath": "~/Log" 
     }
   ]
 }

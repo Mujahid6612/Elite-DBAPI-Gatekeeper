@@ -27,7 +27,7 @@
  *
  * MANY-TO-ONE IS THE POINT. A block lists every source that shares it:
  *
- *   "sources": ["EliteNativeApp", "EliteIdWebApp", "EliteWebsite"], "target": "DBAPI"
+ *   "sources": ["NativeApp", "WebApp", "EliteWebsite"], "target": "DBAPI"
  *
  * All three then reach the same database with the same companyNum, procName and audit
  * settings. One-to-one is just a block with a single source.
@@ -152,6 +152,17 @@ function readTenantRegistry(filePath = defaultTenantsPath()) {
     if (sources.length === 0) problems.push(`${where}: "sources" must list at least one source name`);
     if (!target) problems.push(`${where}: "target" is required`);
 
+    // A database block that omits these LOADS fine but fails every request it serves:
+    // an empty dbType coerces to 0, which is OLE DB and rejected, and an empty procName
+    // would generate `BEGIN (...); END;`. Catching it here keeps the promise the rest of
+    // this validation makes - a configuration mistake stops the deploy, not the first
+    // customer request days later. The `default` block is exempt: it never dispatches.
+    for (const field of ['companyNum', 'procName', 'dbType']) {
+      if (!String(entry[field] === undefined || entry[field] === null ? '' : entry[field]).trim()) {
+        problems.push(`${where}: "${field}" is required on a database block`);
+      }
+    }
+
     // A misspelled field is silently ignored by every getter, so the block would run
     // with a default nobody intended - report it instead.
     for (const field of Object.keys(entry)) {
@@ -178,7 +189,7 @@ function readTenantRegistry(filePath = defaultTenantsPath()) {
       const key = routeKey(source, target);
       const existing = routes.get(key);
       if (existing) {
-        // Matching upper-cases both sides, so 'EliteIdWebApp' and 'EliteIDWebApp' are
+        // Matching upper-cases both sides, so 'WebApp' and 'EliteIDWebApp' are
         // the same route - two blocks claiming it is a configuration mistake.
         problems.push(
           `${where}: source "${source}" with target "${target}" is already served by "${existing.projectName}"`

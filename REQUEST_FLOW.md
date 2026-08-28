@@ -50,7 +50,7 @@ The example below omits them for brevity.
   "databases": [
     {
       "projectName": "Elite Production Database",
-      "sources": ["EliteNativeApp", "EliteIdWebApp"],
+      "sources": ["NativeApp", "WebApp"],
       "target": "DBAPI",
       "companyNum": "101",
       "whitelistedIPs": "*",
@@ -117,7 +117,7 @@ Both apps send the same envelope shape. They differ in how they get there.
 `src/Services/apiService.ts`:
 
 ```ts
-const SOURCE = Config.SOURCE || 'EliteNativeApp';
+const SOURCE = Config.SOURCE || 'NativeApp';
 const TARGET = Config.TARGET || 'DBAPI';
 
 const buildPayload = async (actionCode, viewName, jData) => ({
@@ -147,7 +147,7 @@ await axiosInstance.post(GATEWAY_PATH, payload);   // GATEWAY_PATH = /DBAPI/Proc
 Note `Client` is `"ELITE"` in **both** applications — it names the company, not the app,
 so it cannot distinguish them. `Source` is what does.
 
-The `|| 'EliteNativeApp'` fallback is load-bearing. `Config.SOURCE` is `undefined`
+The `|| 'NativeApp'` fallback is load-bearing. `Config.SOURCE` is `undefined`
 whenever react-native-config fails to resolve an env file, and `JSON.stringify` **drops
 undefined keys** — the JHeader would ship with no `Source` at all and every request would
 be refused.
@@ -164,7 +164,7 @@ const config = {
   login: process.env.DBAPI_LOGIN,
   password: process.env.DBAPI_PASSWORD,
   actionCode: process.env.DBAPI_ACTION_CODE.trim(),
-  source: (process.env.DBAPI_SOURCE || 'EliteIdWebApp').trim(),
+  source: (process.env.DBAPI_SOURCE || 'WebApp').trim(),
   target: (process.env.DBAPI_TARGET || 'DBAPI').trim()
 };
 ```
@@ -469,7 +469,7 @@ EliteApp requests the home screen.
 1.  POST https://elite-dbapi-gatekeeper.vercel.app/DBAPI/ProcessRequest
 
     {"ActionCode":"S.APP.HOME","ViewName":"HOME","ClientIP":"203.0.113.5",
-     "JsonReq":{"JHeader":{"Source":"EliteNativeApp","Target":"DBAPI", …},
+     "JsonReq":{"JHeader":{"Source":"NativeApp","Target":"DBAPI", …},
                 "JData":{"p_VP_COMPANY_NUM":"101"}},
      "Notes":"Test Notes ..."}
 
@@ -484,7 +484,7 @@ EliteApp requests the home screen.
 7.  extract   ActionCode / ViewName / ClientIP / JsonReq / Notes
 8.  creds     block apiUserName is blank → check skipped
 
-9.  ROUTING   Source 'EliteNativeApp' + Target 'DBAPI'
+9.  ROUTING   Source 'NativeApp' + Target 'DBAPI'
               → routeKey 'ELITENATIVEAPP DBAPI'
               → block 'Elite Production Database'
                   companyNum 101, procName REQUEST_HANDLER.ACTIONS, dbType 2,
@@ -519,7 +519,7 @@ block's log (`999`, `.txt`), and everything from `0:` onward to the matched bloc
 ### Letting another app share an existing database
 
 ```jsonc
-"sources": ["EliteNativeApp", "EliteIdWebApp", "EliteWebsite"]
+"sources": ["NativeApp", "WebApp", "EliteWebsite"]
 ```
 
 That is the whole change. All three get the same `companyNum`, `procName`, audit settings

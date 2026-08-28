@@ -31,7 +31,7 @@ async function runRequest(configOverrides, jsonRequest, dbResult = { output: 'DB
   const registryOriginals = { resolve: tenantRegistry.resolveTenant, connectionFor: tenantRegistry.connectionFor };
   const matched = new Tenant({
     name: 'elite_main',
-    sources: ['EliteNativeApp', 'EliteIdWebApp'],
+    sources: ['NativeApp', 'WebApp'],
     target: 'DBAPI',
     companyNum: '101',
     procName: 'REQUEST_HANDLER.ACTIONS',
@@ -88,7 +88,7 @@ const VALID_BODY = JSON.stringify({
   ActionCode: 'A1',
   ViewName: 'V1',
   ClientIP: '9.9.9.9',
-  JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI' }, q: 1 },
+  JsonReq: { JHeader: { Source: 'NativeApp', Target: 'DBAPI' }, q: 1 },
   Notes: 'N1'
 });
 
@@ -180,7 +180,7 @@ test('JsonReq objects reach the DB as indented JSON with CRLF; other fields as p
     companyNum: '101',
     viewName: 'V1',
     clientIP: '9.9.9.9',
-    jsonReq: '{\r\n  "JHeader": {\r\n    "Source": "EliteNativeApp",\r\n    "Target": "DBAPI"\r\n  },\r\n  "q": 1\r\n}',
+    jsonReq: '{\r\n  "JHeader": {\r\n    "Source": "NativeApp",\r\n    "Target": "DBAPI"\r\n  },\r\n  "q": 1\r\n}',
     notes: 'N1'
   });
 });
@@ -191,7 +191,7 @@ test('the whole JHeader, Source and Target included, still reaches the stored pr
   const { dbCalls } = await runRequest({}, VALID_BODY);
   const forwarded = JSON.parse(dbCalls[0].jsonReq.replace(/\r\n/g, '\n'));
 
-  assert.equal(forwarded.JHeader.Source, 'EliteNativeApp');
+  assert.equal(forwarded.JHeader.Source, 'NativeApp');
   assert.equal(forwarded.JHeader.Target, 'DBAPI');
 });
 
@@ -236,7 +236,7 @@ test('credentials are also accepted inside JsonReq.JHeader, where the app actual
       ActionCode: 'A1',
       ViewName: 'V1',
       ClientIP: '9.9.9.9',
-      JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI', ...header }, JData: {} },
+      JsonReq: { JHeader: { Source: 'NativeApp', Target: 'DBAPI', ...header }, JData: {} },
       Notes: 'N1'
     });
 
@@ -255,7 +255,7 @@ test('a JsonReq sent as a JSON string still exposes its JHeader credentials', as
     ViewName: 'V1',
     ClientIP: '9.9.9.9',
     JsonReq: JSON.stringify({
-      JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI', APILogin: 'u', APIPassword: 'p' }
+      JHeader: { Source: 'NativeApp', Target: 'DBAPI', APILogin: 'u', APIPassword: 'p' }
     }),
     Notes: 'N1'
   });
@@ -287,7 +287,7 @@ test('top-level credentials still win over a nested pair', async () => {
     ActionCode: 'A1',
     ViewName: 'V1',
     ClientIP: '9.9.9.9',
-    JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI', APILogin: 'u', APIPassword: 'WRONG' } },
+    JsonReq: { JHeader: { Source: 'NativeApp', Target: 'DBAPI', APILogin: 'u', APIPassword: 'WRONG' } },
     Notes: 'N1',
     APILogin: 'u',
     APIPassword: 'p'
@@ -354,7 +354,7 @@ test('a body with no Source/Target is refused, and never reaches the database', 
 });
 
 test('Source without Target, and Target without Source, are both refused', async () => {
-  for (const header of [{ Source: 'EliteNativeApp' }, { Target: 'DBAPI' }, { Source: '', Target: 'DBAPI' }]) {
+  for (const header of [{ Source: 'NativeApp' }, { Target: 'DBAPI' }, { Source: '', Target: 'DBAPI' }]) {
     const body = JSON.parse(VALID_BODY);
     body.JsonReq = { JHeader: header };
     const { error } = await runRequest({}, JSON.stringify(body));
@@ -383,8 +383,8 @@ test('routing rejections carry no words the EliteID client rewrites into a succe
   }
 });
 
-test('both shipped clients route successfully: EliteNativeApp and EliteIdWebApp', async () => {
-  for (const source of ['EliteNativeApp', 'EliteIdWebApp']) {
+test('both shipped clients route successfully: NativeApp and WebApp', async () => {
+  for (const source of ['NativeApp', 'WebApp']) {
     const body = JSON.parse(VALID_BODY);
     body.JsonReq = { JHeader: { Source: source, Target: 'DBAPI' } };
     const { error, dbCalls } = await runRequest({}, JSON.stringify(body));
@@ -398,7 +398,7 @@ test('matching is case-insensitive, so a casing slip does not take an app down',
   for (const [source, target] of [
     ['elitenativeapp', 'dbapi'],
     ['ELITENATIVEAPP', 'DBAPI'],
-    ['  EliteNativeApp  ', ' DBAPI ']
+    ['  NativeApp  ', ' DBAPI ']
   ]) {
     const body = JSON.parse(VALID_BODY);
     body.JsonReq = { JHeader: { Source: source, Target: target } };
@@ -442,7 +442,7 @@ test('companyNum still comes from configuration, never from the request body', a
 
 test('every source on one block shares its companyNum and procedure (many-to-one)', async () => {
   const results = [];
-  for (const source of ['EliteNativeApp', 'EliteIdWebApp']) {
+  for (const source of ['NativeApp', 'WebApp']) {
     const body = JSON.parse(VALID_BODY);
     body.JsonReq = { JHeader: { Source: source, Target: 'DBAPI' } };
     const { dbCalls, error } = await runRequest({ companyNum: '101' }, JSON.stringify(body));

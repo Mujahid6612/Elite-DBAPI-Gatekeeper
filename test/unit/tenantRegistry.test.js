@@ -26,6 +26,9 @@ const path = require('path');
 const tenantRegistry = require('../../config/tenantRegistry');
 const { encryptString } = require('../../utils/encryption');
 
+/** The three fields every database block must now declare. */
+const DB_DEFAULTS = { companyNum: '101', procName: 'PKG.ACTIONS', dbType: 2 };
+
 const BASE_DEFAULT = { projectName: 'Self', companyNum: '999', whitelistedIPs: '*', logType: 1, logPath: '~/Log' };
 
 /** Writes a tenant configuration to a throwaway file and returns its path. */
@@ -40,7 +43,7 @@ const THREE_APPS_ONE_DB = {
   databases: [
     {
       projectName: 'elite_main',
-      sources: ['EliteNativeApp', 'EliteIdWebApp', 'EliteWebsite'],
+      sources: ['NativeApp', 'WebApp', 'EliteWebsite'],
       target: 'DBAPI',
       companyNum: '101',
       procName: 'REQUEST_HANDLER.ACTIONS',
@@ -55,7 +58,7 @@ const THREE_APPS_ONE_DB = {
 test('three sources on one block all reach the SAME database and settings', () => {
   const registry = tenantRegistry.readTenantRegistry(writeConfig(THREE_APPS_ONE_DB));
 
-  const blocks = ['EliteNativeApp', 'EliteIdWebApp', 'EliteWebsite'].map((source) =>
+  const blocks = ['NativeApp', 'WebApp', 'EliteWebsite'].map((source) =>
     tenantRegistry.resolveTenant(source, 'DBAPI', registry)
   );
 
@@ -72,8 +75,8 @@ test('one-to-one and many-to-one coexist in the same file', () => {
   const registry = tenantRegistry.readTenantRegistry(
     writeConfig({
       databases: [
-        { projectName: 'shared', sources: ['AppA', 'AppB'], target: 'DBAPI', companyNum: '101' },
-        { projectName: 'private', sources: ['AppC'], target: 'DBAPI', companyNum: '102' }
+        { projectName: 'shared', sources: ['AppA', 'AppB'], target: 'DBAPI', ...DB_DEFAULTS, companyNum: '101' },
+        { projectName: 'private', sources: ['AppC'], target: 'DBAPI', ...DB_DEFAULTS, companyNum: '102' }
       ]
     })
   );
@@ -88,8 +91,8 @@ test('the same source may serve different targets', () => {
   const registry = tenantRegistry.readTenantRegistry(
     writeConfig({
       databases: [
-        { projectName: 'main', sources: ['AppA'], target: 'DBAPI', companyNum: '101' },
-        { projectName: 'reporting', sources: ['AppA'], target: 'REPORTING', companyNum: '101' }
+        { projectName: 'main', sources: ['AppA'], target: 'DBAPI', ...DB_DEFAULTS },
+        { projectName: 'reporting', sources: ['AppA'], target: 'REPORTING', ...DB_DEFAULTS }
       ]
     })
   );
@@ -102,7 +105,7 @@ test('an unconfigured pair resolves to null rather than to some default', () => 
   const registry = tenantRegistry.readTenantRegistry(writeConfig(THREE_APPS_ONE_DB));
 
   assert.equal(tenantRegistry.resolveTenant('Unknown', 'DBAPI', registry), null);
-  assert.equal(tenantRegistry.resolveTenant('EliteNativeApp', 'REPORTING', registry), null);
+  assert.equal(tenantRegistry.resolveTenant('NativeApp', 'REPORTING', registry), null);
   assert.equal(tenantRegistry.resolveTenant('', '', registry), null);
 });
 
@@ -112,7 +115,7 @@ test('matching ignores case and surrounding whitespace', () => {
   for (const [source, target] of [
     ['elitenativeapp', 'dbapi'],
     ['ELITENATIVEAPP', 'DBAPI'],
-    ['  EliteNativeApp  ', ' DBAPI ']
+    ['  NativeApp  ', ' DBAPI ']
   ]) {
     assert.equal(
       tenantRegistry.resolveTenant(source, target, registry).projectName,
@@ -137,7 +140,16 @@ test('an encrypted connectionString is decrypted and split into Oracle credentia
   const cipherText = encryptString('Data Source=ELDevWan;user id=SCOTT;password=TIGER;', 'test-key');
   const registry = tenantRegistry.readTenantRegistry(
     writeConfig({
-      databases: [{ projectName: 'enc', sources: ['AppA'], target: 'DBAPI', connectionString: cipherText, poolMax: 2 }]
+      databases: [
+        {
+          projectName: 'enc',
+          sources: ['AppA'],
+          target: 'DBAPI',
+          ...DB_DEFAULTS,
+          connectionString: cipherText,
+          poolMax: 2
+        }
+      ]
     })
   );
 
@@ -151,7 +163,9 @@ test('an encrypted connectionString is decrypted and split into Oracle credentia
 
 test('envPrefix reads the three environment variables instead', () => {
   const registry = tenantRegistry.readTenantRegistry(
-    writeConfig({ databases: [{ projectName: 'env', sources: ['AppA'], target: 'DBAPI', envPrefix: 'DB_TEST' }] })
+    writeConfig({
+      databases: [{ projectName: 'env', sources: ['AppA'], target: 'DBAPI', ...DB_DEFAULTS, envPrefix: 'DB_TEST' }]
+    })
   );
 
   process.env.DB_TEST_USER = 'envuser';
@@ -166,7 +180,7 @@ test('envPrefix reads the three environment variables instead', () => {
 
 test('a block with neither falls back to the default ORACLE_* variables', () => {
   const registry = tenantRegistry.readTenantRegistry(
-    writeConfig({ databases: [{ projectName: 'plain', sources: ['AppA'], target: 'DBAPI' }] })
+    writeConfig({ databases: [{ projectName: 'plain', sources: ['AppA'], target: 'DBAPI', ...DB_DEFAULTS }] })
   );
 
   process.env.ORACLE_USER = 'oracleuser';
@@ -182,9 +196,9 @@ test('blocks with the same credentials share a pool key; different ones do not',
   const registry = tenantRegistry.readTenantRegistry(
     writeConfig({
       databases: [
-        { projectName: 'a', sources: ['AppA'], target: 'DBAPI', envPrefix: 'DB_SHARED' },
-        { projectName: 'b', sources: ['AppB'], target: 'DBAPI', envPrefix: 'DB_SHARED' },
-        { projectName: 'c', sources: ['AppC'], target: 'DBAPI', envPrefix: 'DB_OTHER' }
+        { projectName: 'a', sources: ['AppA'], target: 'DBAPI', ...DB_DEFAULTS, envPrefix: 'DB_SHARED' },
+        { projectName: 'b', sources: ['AppB'], target: 'DBAPI', ...DB_DEFAULTS, envPrefix: 'DB_SHARED' },
+        { projectName: 'c', sources: ['AppC'], target: 'DBAPI', ...DB_DEFAULTS, envPrefix: 'DB_OTHER' }
       ]
     })
   );
@@ -200,8 +214,8 @@ test('blocks with the same credentials share a pool key; different ones do not',
 test('a block claiming a source another block already serves is rejected', () => {
   const file = writeConfig({
     databases: [
-      { projectName: 'first', sources: ['AppA'], target: 'DBAPI' },
-      { projectName: 'second', sources: ['appa'], target: 'dbapi' }
+      { projectName: 'first', sources: ['AppA'], target: 'DBAPI', ...DB_DEFAULTS },
+      { projectName: 'second', sources: ['appa'], target: 'dbapi', ...DB_DEFAULTS }
     ]
   });
 
@@ -210,7 +224,9 @@ test('a block claiming a source another block already serves is rejected', () =>
 
 test('declaring both connectionString and envPrefix is rejected as ambiguous', () => {
   const file = writeConfig({
-    databases: [{ projectName: 'x', sources: ['A'], target: 'T', connectionString: 'abc', envPrefix: 'DB_X' }]
+    databases: [
+      { projectName: 'x', sources: ['A'], target: 'T', ...DB_DEFAULTS, connectionString: 'abc', envPrefix: 'DB_X' }
+    ]
   });
 
   assert.throws(() => tenantRegistry.readTenantRegistry(file), /not both/);
@@ -220,7 +236,7 @@ test('a misspelled field is reported rather than silently ignored', () => {
   // Every getter returns '' for an absent key, so a typo would otherwise run the block
   // with a default nobody chose - a wrong companyNum reaching the stored procedure.
   const file = writeConfig({
-    databases: [{ projectName: 'x', sources: ['A'], target: 'T', procname: 'lowercase.typo' }]
+    databases: [{ projectName: 'x', sources: ['A'], target: 'T', ...DB_DEFAULTS, procname: 'lowercase.typo' }]
   });
 
   assert.throws(() => tenantRegistry.readTenantRegistry(file), /unknown field "procname"/);
@@ -246,7 +262,11 @@ test('every problem is reported together, not one per restart', () => {
 test('a missing default block is rejected: pre-parse logging would have no tenant', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbgk-tenants-'));
   const file = path.join(dir, 'tenants.json');
-  fs.writeFileSync(file, JSON.stringify({ databases: [{ projectName: 'x', sources: ['A'], target: 'T' }] }), 'utf8');
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ databases: [{ projectName: 'x', sources: ['A'], target: 'T', ...DB_DEFAULTS }] }),
+    'utf8'
+  );
 
   assert.throws(() => tenantRegistry.readTenantRegistry(file), /"default" block is missing/);
 });
@@ -271,7 +291,55 @@ test('the shipped config/tenants.jsonc is valid and serves both real clients', (
   // Guards the file that actually ships: a typo here takes every client down.
   const registry = tenantRegistry.readTenantRegistry();
 
-  assert.ok(tenantRegistry.resolveTenant('EliteNativeApp', 'DBAPI', registry), 'EliteApp must route');
-  assert.ok(tenantRegistry.resolveTenant('EliteIdWebApp', 'DBAPI', registry), 'EliteID must route');
+  assert.ok(tenantRegistry.resolveTenant('NativeApp', 'DBAPI', registry), 'EliteApp must route');
+  assert.ok(tenantRegistry.resolveTenant('WebApp', 'DBAPI', registry), 'EliteID must route');
   assert.equal(tenantRegistry.defaultTenant(registry).companyNum, '999');
+});
+
+test('a database block omitting companyNum, procName or dbType is rejected at startup', () => {
+  // These load fine but fail EVERY request the block serves: an empty dbType coerces to
+  // 0 (OLE DB, rejected) and an empty procName generates `BEGIN (...); END;`. Catching
+  // it here is the difference between a failed deploy and a failed customer request.
+  const file = writeConfig({
+    databases: [{ projectName: 'Elite Dev Database', sources: ['DevApp'], target: 'DBAPI' }]
+  });
+
+  try {
+    tenantRegistry.readTenantRegistry(file);
+    assert.fail('should have thrown');
+  } catch (error) {
+    assert.match(error.message, /"companyNum" is required on a database block/);
+    assert.match(error.message, /"procName" is required on a database block/);
+    assert.match(error.message, /"dbType" is required on a database block/);
+  }
+});
+
+test('the default block does NOT need procName or dbType — it never runs a procedure', () => {
+  const registry = tenantRegistry.readTenantRegistry(writeConfig(THREE_APPS_ONE_DB));
+  const fallback = tenantRegistry.defaultTenant(registry);
+
+  assert.equal(fallback.procName, '', 'no procedure configured, and none needed');
+  assert.equal(fallback.dbType, '');
+  assert.equal(fallback.companyNum, '999', 'but it still identifies itself for logging');
+});
+
+test('a block carrying ciphertext is reported as needing an encryption key', () => {
+  // This is what validateEnv checks to refuse startup when CONFIG_ENCRYPTION_KEY is
+  // unset. There is deliberately NO fallback passphrase in config/env.js: a default
+  // would put the key back in the repository beside the ciphertext it protects, and a
+  // deployment that forgot the variable would start silently and fail later with an
+  // opaque `bad decrypt` instead of a clear message at boot.
+  const withCipher = tenantRegistry.readTenantRegistry(
+    writeConfig({
+      databases: [{ projectName: 'enc', sources: ['A'], target: 'T', ...DB_DEFAULTS, connectionString: 'abc' }]
+    })
+  );
+  assert.equal(tenantRegistry.requiresEncryptionKey(withCipher), true);
+
+  const withoutCipher = tenantRegistry.readTenantRegistry(writeConfig(THREE_APPS_ONE_DB));
+  assert.equal(
+    tenantRegistry.requiresEncryptionKey(withoutCipher),
+    false,
+    'a deployment using envPrefix or the ORACLE_* defaults needs no key at all'
+  );
 });

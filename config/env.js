@@ -151,12 +151,14 @@ const envConfig = Object.freeze({
    * file was obfuscated, not encrypted. Reading it from here is what makes committing
    * the ciphertext actually safe.
    *
-   * Set it to the legacy value 'SoundViewTechEncryption' to keep existing ciphertext
-   * working during migration; rotate to a new passphrase (and re-encrypt with
-   * `npm run encrypt-secret`) as soon as practical, because the old one is public.
+   * DELIBERATELY NO FALLBACK. A default here would defeat the entire arrangement: the
+   * passphrase would be back in the repository, beside the ciphertext it protects, and
+   * a deployment that simply forgot to set the variable would start SILENTLY and then
+   * fail on the first request with `bad decrypt` - an error naming nothing useful.
+   * Empty instead, so validateEnv can refuse to boot and say exactly what is missing.
    *
-   * Required only when a tenant block actually carries a ciphertext - a deployment
-   * using envPrefix or the default ORACLE_* variables needs no key at all.
+   * Required only when a block actually carries a ciphertext - a deployment using
+   * envPrefix or the default ORACLE_* variables needs no key at all.
    */
   configEncryptionKey: process.env.CONFIG_ENCRYPTION_KEY || '',
   // Salt for the key derivation. NOT a secret - it exists to make the derived key

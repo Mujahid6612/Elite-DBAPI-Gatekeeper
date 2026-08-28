@@ -153,7 +153,7 @@ A request is routed by the `Source` and `Target` values inside `JsonReq.JHeader`
   "databases": [
     {
       "projectName": "Elite Production Database",
-      "sources": ["EliteNativeApp", "EliteIdWebApp"],
+      "sources": ["NativeApp", "WebApp"],
       "target": "DBAPI",
       "companyNum": "101",
       "whitelistedIPs": "*",

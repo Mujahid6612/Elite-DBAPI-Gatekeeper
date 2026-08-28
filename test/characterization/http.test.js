@@ -104,7 +104,7 @@ test('the diagnostic summary no longer discloses the decrypted connection string
   // block has none (it never dispatches a procedure), and an absent value renders as
   // empty, which is covered by its own test below.
   const config = {
-    sourceWebsite: 'EliteNativeApp',
+    sourceWebsite: 'NativeApp',
     projectName: 'Elite DBAPI',
     targetDBConnectionString: 'Data Source=ELDevWan;user id=SCOTT;Password=tiger;',
     companyNum: '101',
@@ -202,7 +202,7 @@ test('POST /DBAPI/ProcessRequest returns the stored-procedure output on success'
             ActionCode: 'A',
             ViewName: 'V',
             ClientIP: '1.1.1.1',
-            JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI' } },
+            JsonReq: { JHeader: { Source: 'NativeApp', Target: 'DBAPI' } },
             Notes: 'N'
           })
         });
@@ -225,7 +225,7 @@ test('POST accepts the legacy single-quoted body shape (G12)', async () => {
           ActionCode: 'A',
           ViewName: 'V',
           ClientIP: '1.1.1.1',
-          JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI' } },
+          JsonReq: { JHeader: { Source: 'NativeApp', Target: 'DBAPI' } },
           Notes: 'N'
         });
         const res = await request(port, {
@@ -260,7 +260,7 @@ test('POST returns HTTP 200 with the exception message when the DB fails (G4)', 
             ActionCode: 'A',
             ViewName: 'V',
             ClientIP: '1.1.1.1',
-            JsonReq: { JHeader: { Source: 'EliteNativeApp', Target: 'DBAPI' } },
+            JsonReq: { JHeader: { Source: 'NativeApp', Target: 'DBAPI' } },
             Notes: 'N'
           })
         });
