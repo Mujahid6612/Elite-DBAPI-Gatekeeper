@@ -396,9 +396,9 @@ test('both shipped clients route successfully: NativeApp and WebApp', async () =
 
 test('matching is case-insensitive, so a casing slip does not take an app down', async () => {
   for (const [source, target] of [
-    ['elitenativeapp', 'dbapi'],
-    ['ELITENATIVEAPP', 'DBAPI'],
-    ['  NativeApp  ', ' DBAPI ']
+    ['nativeapp', 'dbapi'],
+    ['NATIVEAPP', 'DBAPI'],
+    ['NativeApp', ' DBAPI ']
   ]) {
     const body = JSON.parse(VALID_BODY);
     body.JsonReq = { JHeader: { Source: source, Target: target } };

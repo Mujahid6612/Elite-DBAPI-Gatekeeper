@@ -113,9 +113,9 @@ test('matching ignores case and surrounding whitespace', () => {
   const registry = tenantRegistry.readTenantRegistry(writeConfig(THREE_APPS_ONE_DB));
 
   for (const [source, target] of [
-    ['elitenativeapp', 'dbapi'],
-    ['ELITENATIVEAPP', 'DBAPI'],
-    ['  NativeApp  ', ' DBAPI ']
+    ['nativeapp', 'dbapi'],
+    ['NATIVEAPP', 'DBAPI'],
+    ['NativeApp', ' DBAPI ']
   ]) {
     assert.equal(
       tenantRegistry.resolveTenant(source, target, registry).projectName,

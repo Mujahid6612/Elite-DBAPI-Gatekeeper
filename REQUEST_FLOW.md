@@ -485,7 +485,7 @@ EliteApp requests the home screen.
 8.  creds     block apiUserName is blank → check skipped
 
 9.  ROUTING   Source 'NativeApp' + Target 'DBAPI'
-              → routeKey 'ELITENATIVEAPP DBAPI'
+              → routeKey 'NATIVEAPP DBAPI'
               → block 'Elite Production Database'
                   companyNum 101, procName REQUEST_HANDLER.ACTIONS, dbType 2,
                   logType 0 → Log/101/<year>/<date>.html
