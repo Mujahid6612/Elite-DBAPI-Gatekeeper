@@ -61,7 +61,7 @@
       // Alternative: set "envPrefix": "DB_ELITE_MAIN" instead and provide
       // DB_ELITE_MAIN_USER / _PASSWORD / _CONNECT_STRING in the environment.
       // Set connectionString OR envPrefix — never both; startup rejects that.
-      "connectionString": "l8uzBxcILzkWty4/dEw9BFc/JFDt5Vy88vm3OEuTLyAeYyrdCz7O52Pe/qZHXcdB/PKu2tjMpKbEiTvgLIU72A==",
+      "connectionString": "PDef0xjp1TK+EpccV9GotTX9GdiPWSYzYQv0gmS6gVHAkyX7TCJG02Jq78ZaAmlrK3AVUZlU949dlJoqxOnIlQ==",
 
       "dbType": 2, // 2 = Oracle  (1 = SQL Server, needs `npm install mssql`)
       "driverType": 0, // unread; carried over from the .NET enum so the value is not lost
