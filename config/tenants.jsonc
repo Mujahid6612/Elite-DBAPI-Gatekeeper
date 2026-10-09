@@ -84,7 +84,7 @@
       "whitelistedIPs": "*",
       "blacklistedIPs": "",
       "enableLogging": true,
-      "apiUserName": "user@webapis.com",
+      "apiUserName": "xyzapp@xyz.com",
       "apiPassword": "12345",
       "connectionString": "PDef0xjp1TK+EpccV9GotTX9GdiPWSYzYQv0gmS6gVHAkyX7TCJG02Jq78ZaAmlrK3AVUZlU949dlJoqxOnIlQ==",
       "dbType": 2,
