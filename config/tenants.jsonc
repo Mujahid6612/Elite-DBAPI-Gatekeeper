@@ -89,7 +89,7 @@
       "connectionString": "PDef0xjp1TK+EpccV9GotTX9GdiPWSYzYQv0gmS6gVHAkyX7TCJG02Jq78ZaAmlrK3AVUZlU949dlJoqxOnIlQ==",
       "dbType": 2,
       "driverType": 0,
-      "procName": "REQUEST_HANDLER.ACTIONS",
+      "procName": "XYZ_REQUEST_HANDLER.ACTIONS",
       "logType": 0,
       "logPath": "~/Log"
     }
