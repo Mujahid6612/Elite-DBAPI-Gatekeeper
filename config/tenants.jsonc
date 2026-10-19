@@ -92,6 +92,23 @@
       "procName": "XYZ_REQUEST_HANDLER.ACTIONS",
       "logType": 0,
       "logPath": "~/Log"
+    },
+    {
+      "projectName": "XYZ Actual Web App",
+      "sources": ["XYZActualWebApp"],
+      "target": "XYZActualAPI",
+      "companyNum": "101",
+      "whitelistedIPs": "*",
+      "blacklistedIPs": "",
+      "enableLogging": true,
+      "apiUserName": "xyz_real@xyz.com",
+      "apiPassword": "112233",
+      "connectionString": "PDef0xjp1TK+EpccV9GotTX9GdiPWSYzYQv0gmS6gVHAkyX7TCJG02Jq78ZaAmlrK3AVUZlU949dlJoqxOnIlQ==",
+      "dbType": 2,
+      "driverType": 0,
+      "procName": "XYZ_REQUEST_HANDLER.ACTIONS",
+      "logType": 0,
+      "logPath": "~/Log"
     }
     // {
     //   "projectName": "Elite Id app",
