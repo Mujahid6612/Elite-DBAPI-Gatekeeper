@@ -103,7 +103,7 @@
       "enableLogging": true,
       "apiUserName": "xyz_real@xyz.com",
       "apiPassword": "112233",
-      "connectionString": "0jccfIZyq0SHeeg8Tq9dGQFLGbLGiK5d7MWO+5xIb5Q15WDw1nOPqMlz9M+4BGScCsQAnuQklzaMztWmr5Ujow==",
+      "connectionString": "0jccfIZyq0SHeeg8Tq9dGZQt6hvaZY5jRC/o8kndZyH4Yd2PWXgHLBBt6ZcehLrH2yv+Rp7sWEJmR3LFCFulzQ==",
       "dbType": 2,
       "driverType": 0,
       "procName": "XYZ_REQUEST_HANDLER.ACTIONS",
