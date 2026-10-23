@@ -11,15 +11,15 @@
   // tenant for routes that carry no envelope: FlightView, the diagnostic GET, the
   // access log and 404s. It never dispatches a stored procedure, so it needs no
   // database, procName or dbType.
-  "default": {
-    "projectName": "WebAPI Itself",
-    "companyNum": "999",
-    "whitelistedIPs": "*",
-    "blacklistedIPs": "", // empty = no addresses explicitly blocked
-    "enableLogging": true,
-    "logType": 1, // 1 = .txt  (0 = .html, 2 = console)
-    "logPath": "~/Log" // relative, so resolved against LOG_ROOT
-  },
+  // "default": {
+  //   "projectName": "WebAPI Itself",
+  //   "companyNum": "999",
+  //   "whitelistedIPs": "*",
+  //   "blacklistedIPs": "", // empty = no addresses explicitly blocked
+  //   "enableLogging": true,
+  //   "logType": 1, // 1 = .txt  (0 = .html, 2 = console)
+  //   "logPath": "~/Log" // relative, so resolved against LOG_ROOT
+  // },
 
   "databases": [
     {
