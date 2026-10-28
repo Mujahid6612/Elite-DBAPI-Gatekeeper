@@ -92,3 +92,20 @@ test('the option set is exactly these four keys — no stray properties', () => 
   const { options } = captureCreatePoolOptions({ ORACLE_CONFIG_DIR: '/a', TNS_ADMIN: '/b' });
   assert.deepEqual(Object.keys(options).sort(), ['configDir', 'connectString', 'password', 'user']);
 });
+
+test('on Vercel the connect timeout defaults to 10s so an unreachable DB fails before the 60s limit', () => {
+  const { options } = captureCreatePoolOptions({ VERCEL: '1' });
+  assert.equal(options.connectTimeout, 10);
+  assert.equal(options.transportConnectTimeout, 10);
+});
+
+test('ORACLE_CONNECT_TIMEOUT overrides the Vercel default', () => {
+  const { options } = captureCreatePoolOptions({ VERCEL: '1', ORACLE_CONNECT_TIMEOUT: '5' });
+  assert.equal(options.connectTimeout, 5);
+  assert.equal(options.transportConnectTimeout, 5);
+});
+
+test('ORACLE_CONNECT_TIMEOUT applies off Vercel too', () => {
+  const { options } = captureCreatePoolOptions({ ORACLE_CONNECT_TIMEOUT: '7' });
+  assert.equal(options.connectTimeout, 7);
+});

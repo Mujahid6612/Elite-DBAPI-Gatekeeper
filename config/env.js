@@ -53,6 +53,16 @@ function optionalInt(value) {
 }
 
 /**
+ * ORACLE_CONNECT_TIMEOUT in seconds. Unset leaves the driver's own default (60s), which
+ * equals a Vercel function's maxDuration: an unreachable database then hangs until the
+ * platform kills the request with a bare 504. On Vercel it therefore defaults to 10s so
+ * the failure surfaces as a logged connect error instead.
+ */
+function oracleConnectTimeoutSeconds() {
+  return optionalInt(process.env.ORACLE_CONNECT_TIMEOUT) ?? (process.env.VERCEL ? 10 : undefined);
+}
+
+/**
  * Resolves a possibly-relative path setting against the project root, preserving ''
  * for an unset value so callers can still test it for emptiness.
  */
@@ -126,6 +136,7 @@ function readConnectionSecrets(envPrefix) {
  * @property {boolean} oracleThickMode
  * @property {string} oracleClientLibDir
  * @property {Record<string, number>} oraclePool
+ * @property {number|undefined} oracleCallTimeoutMs
  * @property {number} shutdownTimeoutMs
  * @property {'stderr'|'stdout'} eventLogFallback
  * @property {'silent'|'error'|'warn'|'info'|'debug'} logLevel
@@ -202,9 +213,17 @@ const envConfig = Object.freeze({
       poolIncrement: optionalInt(process.env.ORACLE_POOL_INCREMENT),
       poolTimeout: optionalInt(process.env.ORACLE_POOL_TIMEOUT),
       queueTimeout: optionalInt(process.env.ORACLE_QUEUE_TIMEOUT),
-      stmtCacheSize: optionalInt(process.env.ORACLE_STMT_CACHE_SIZE)
+      stmtCacheSize: optionalInt(process.env.ORACLE_STMT_CACHE_SIZE),
+      // Seconds to wait for a session before giving up. Both keys are set from the one
+      // variable: transportConnectTimeout bounds each TCP attempt, connectTimeout bounds
+      // the whole Oracle Net handshake across every address in the TNS entry.
+      connectTimeout: oracleConnectTimeoutSeconds(),
+      transportConnectTimeout: oracleConnectTimeoutSeconds()
     })
   ),
+  // Milliseconds one database call may run before the driver aborts it. Unset means no
+  // limit, except on Vercel where it defaults to stay under the function's 60s ceiling.
+  oracleCallTimeoutMs: optionalInt(process.env.ORACLE_CALL_TIMEOUT_MS) ?? (process.env.VERCEL ? 40000 : undefined),
   // How long a graceful shutdown may take before the process is forced to exit.
   shutdownTimeoutMs: optionalInt(process.env.SHUTDOWN_TIMEOUT_MS) ?? 15000,
   eventLogFallback: (process.env.EVENT_LOG_FALLBACK || 'stderr').trim().toLowerCase(),

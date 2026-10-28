@@ -424,6 +424,10 @@ async function execute(procName, args, dbConnection) {
   const connection = await pool.getConnection();
 
   try {
+    // Abort a call that outlives the host's own limit, so a stuck database surfaces
+    // as a logged driver error rather than a platform timeout.
+    if (envConfig.oracleCallTimeoutMs) connection.callTimeout = envConfig.oracleCallTimeoutMs;
+
     // Use bind values so request data is never added directly to the call.
     const sql = buildCallBlock(procName);
     const binds = buildBinds(args);

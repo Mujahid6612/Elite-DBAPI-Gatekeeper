@@ -39,7 +39,9 @@ const POOL_ENV_NAMES = Object.freeze({
   poolIncrement: 'ORACLE_POOL_INCREMENT',
   poolTimeout: 'ORACLE_POOL_TIMEOUT',
   queueTimeout: 'ORACLE_QUEUE_TIMEOUT',
-  stmtCacheSize: 'ORACLE_STMT_CACHE_SIZE'
+  stmtCacheSize: 'ORACLE_STMT_CACHE_SIZE',
+  connectTimeout: 'ORACLE_CONNECT_TIMEOUT',
+  transportConnectTimeout: 'ORACLE_CONNECT_TIMEOUT'
 });
 
 const BODY_LIMIT_PATTERN = /^\d+(\.\d+)?\s*(b|kb|mb|gb|tb)?$/i;
@@ -88,6 +90,13 @@ function collectProblems() {
     if (!Number.isInteger(value) || value < 0) {
       problems.push(`${POOL_ENV_NAMES[key]} must be a non-negative integer (received: ${value})`);
     }
+  }
+
+  if (
+    envConfig.oracleCallTimeoutMs !== undefined &&
+    (!Number.isInteger(envConfig.oracleCallTimeoutMs) || envConfig.oracleCallTimeoutMs < 0)
+  ) {
+    problems.push(`ORACLE_CALL_TIMEOUT_MS must be a non-negative integer (received: ${envConfig.oracleCallTimeoutMs})`);
   }
 
   if (!Number.isInteger(envConfig.shutdownTimeoutMs) || envConfig.shutdownTimeoutMs < 0) {
