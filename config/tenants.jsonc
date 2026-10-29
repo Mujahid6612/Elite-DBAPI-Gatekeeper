@@ -77,26 +77,9 @@
       //   "envPrefix"    see the connectionString note above
     },
     {
-      "projectName": "xyz web apps",
+      "projectName": "XYZ Apps",
       "sources": ["XYZWebApp"],
       "target": "XYZAPI",
-      "companyNum": "101",
-      "whitelistedIPs": "*",
-      "blacklistedIPs": "",
-      "enableLogging": true,
-      "apiUserName": "xyzapp@xyz.com",
-      "apiPassword": "12345",
-      "connectionString": "PDef0xjp1TK+EpccV9GotTX9GdiPWSYzYQv0gmS6gVHAkyX7TCJG02Jq78ZaAmlrK3AVUZlU949dlJoqxOnIlQ==",
-      "dbType": 2,
-      "driverType": 0,
-      "procName": "XYZ_REQUEST_HANDLER.ACTIONS",
-      "logType": 0,
-      "logPath": "~/Log"
-    },
-    {
-      "projectName": "XYZ Actual Web App",
-      "sources": ["XYZActualWebApp"],
-      "target": "XYZActualAPI",
       "companyNum": "101",
       "whitelistedIPs": "*",
       "blacklistedIPs": "",
@@ -110,21 +93,5 @@
       "logType": 0,
       "logPath": "~/Log"
     }
-    // {
-    //   "projectName": "Elite Id app",
-    //   "sources": ["IDApp"],
-    //   "target": "IDAPI",
-    //   "companyNum": "101",
-    //   "whitelistedIPs": "*",
-    //   "blacklistedIPs": "",
-    //   "apiUserName": "user@webapis.com",
-    //   "apiPassword": "12345",
-    //   "connectionString": "",
-    //   "dbType": 2,
-    //   "driverType": 0,
-    //   "procName": "REQUEST_HANDLER.ACTIONS",
-    //   "logType": 0,
-    //   "logPath": "~/Log"
-    // }
   ]
 }
