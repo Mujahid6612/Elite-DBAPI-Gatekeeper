@@ -13,6 +13,7 @@ const tenantRegistry = require('../config/tenantRegistry');
 const tenantAuditLog = require('../utils/tenantAuditLog');
 const appLogger = require('../utils/appLogger');
 const dbRepository = require('../repositories/dbRepository');
+const gatewayConnectorWake = require('./gatewayConnectorWake');
 const { Messages } = require('../constants');
 const { fixNullString } = require('../utils/nullHelpers');
 const { redactSecrets } = require('../utils/logRedaction');
@@ -277,6 +278,11 @@ async function handleProcessRequest(config, jsonRequest, observedClientIP) {
   const response = toResponseText(dbResult.output);
 
   logOutboundResponse(audit, config, response);
+
+  // AFTER the response is final and audited: tells GatewayConnector that this action added
+  // outbound messages, when the block asks for it. It never throws, never touches the audit
+  // log and is time-bounded, so the response and the contractual step order are unchanged.
+  await gatewayConnectorWake.notifyAfterAction(block, fields.actionCode, dbResult.output);
 
   return response;
 }

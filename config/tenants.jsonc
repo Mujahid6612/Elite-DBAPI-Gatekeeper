@@ -75,6 +75,9 @@
       //   "poolMax": 2   Oracle session ceiling for THIS database. Sessions total
       //                  (instances x databases x poolMax), so set it on serverless.
       //   "envPrefix"    see the connectionString note above
+      //   "gatewayConnector": { "source": "elite", "actions": { "<insert-outbound action code>": "email" } }
+      //                  wake GatewayConnector after those actions; needs GC_WAKE_QUEUE_URL.
+      //                  See README.md → "GatewayConnector wake signals".
     },
     {
       "projectName": "XYZ Apps",

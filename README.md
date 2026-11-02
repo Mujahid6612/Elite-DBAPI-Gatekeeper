@@ -211,9 +211,37 @@ the access log and 404s.
 | `logPath` | | Base directory. `~/Log` resolves against `LOG_ROOT` |
 | `driverType` | | **Unread.** Carried over from the .NET enum; kept so the value is not lost |
 | `description` | | **Unread.** A leftover escape hatch from before comments were supported. Prefer a `//` comment |
+| `gatewayConnector` | | Optional wake signals for GatewayConnector — see [GatewayConnector wake signals](#gatewayconnector-wake-signals) |
 
 Any other field is **rejected at startup**. A typo like `"procname"` would otherwise be
 silently ignored and the block would run with a default nobody chose.
+
+### GatewayConnector wake signals
+
+GatewayConnector sends the emails, SMS and push notifications that the apps queue in the
+database. Without help it finds new rows by reading the queue on a timer. With wake signals,
+the Gatekeeper tells it right after an app adds rows, so they go out within about a second.
+
+```jsonc
+"gatewayConnector": {
+  "source": "elite",                                // GatewayConnector's id for this database
+  "actions": {                                      // action codes that add outbound rows
+    "CMN.I.OUTBOUND_MESSAGE": "email",              // → the channel they add to
+    "CMN.I.OUTBOUND_MESSAGES": ""                   // "" = every channel of that source
+  }
+}
+```
+
+After a request whose `ActionCode` is listed (case-insensitive) **and** whose stored
+procedure reported success (`JHeader.ActionCode` 0), the Gatekeeper puts
+`{"source":"elite","channel":"email"}` on the SQS queue in `GC_WAKE_QUEUE_URL`
+(see `.env.example`). With no queue URL, or no `gatewayConnector` field, nothing happens.
+
+The signal is sent **after** the response is final and audited, writes nothing to the
+tenant audit log, never throws and waits at most `GC_WAKE_TIMEOUT_MS` (1.5 s). The response
+and the contractual step order are therefore unchanged. A lost signal only means
+GatewayConnector picks the rows up on its next safety-net read (every 60 s). Failures go to
+the application log. Code: [`services/gatewayConnectorWake.js`](services/gatewayConnectorWake.js).
 
 ### Three ways a block gets its credentials
 

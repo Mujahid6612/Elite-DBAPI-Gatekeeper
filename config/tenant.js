@@ -124,6 +124,21 @@ class Tenant {
   }
 
   /**
+   * GatewayConnector wake signals for this database, or null when not configured:
+   * `{ source, actions }` where `actions` maps an UPPER-CASED action code to the channel
+   * it adds outbound rows to ('' = every channel). Matching is case-insensitive, like
+   * Source/Target routing.
+   */
+  get gatewayConnector() {
+    const value = this._block.gatewayConnector;
+    if (!value || typeof value !== 'object' || !value.source || !value.actions) return null;
+    const actions = new Map(
+      Object.entries(value.actions).map(([code, channel]) => [String(code).trim().toUpperCase(), String(channel)])
+    );
+    return { source: String(value.source), actions };
+  }
+
+  /**
    * The decrypted ADO connection string, or '' when this block does not carry one.
    *
    * The passphrase comes from the ENVIRONMENT (`CONFIG_ENCRYPTION_KEY`), never from

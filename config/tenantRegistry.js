@@ -73,11 +73,47 @@ const KNOWN_FIELDS = Object.freeze([
   'procName',
   'logType',
   'logPath',
+  // Optional: wake signals for GatewayConnector - see services/gatewayConnectorWake.js.
+  'gatewayConnector',
   // Optional and unread: JSON has no comments, so this exists only as an escape hatch
   // for a per-block note. The shipped file uses none - the explanation belongs in
   // README.md, where it can be read without being JSON-escaped.
   'description'
 ]);
+
+const WAKE_CHANNELS = Object.freeze(['', 'email', 'sms', 'push', 'whatsapp']);
+
+/**
+ * Checks a block's optional "gatewayConnector" field:
+ *     { "source": "elite", "actions": { "CMN.I.OUTBOUND_MESSAGE": "email" } }
+ * `source` is GatewayConnector's id for this database; each action code maps to the
+ * channel it adds rows to ("" = every channel of that source).
+ */
+function gatewayConnectorProblems(where, value) {
+  const at = `${where}.gatewayConnector`;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [`${at}: must be an object`];
+  const problems = [];
+  if (typeof value.source !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,23}$/.test(value.source)) {
+    problems.push(`${at}: "source" must be GatewayConnector's source id (lower-case letters, digits, - and _)`);
+  }
+  const actions = value.actions;
+  if (!actions || typeof actions !== 'object' || Array.isArray(actions) || Object.keys(actions).length === 0) {
+    problems.push(`${at}: "actions" must map at least one action code to a channel`);
+  } else {
+    for (const [code, channel] of Object.entries(actions)) {
+      if (!String(code).trim()) problems.push(`${at}.actions: empty action code`);
+      if (!WAKE_CHANNELS.includes(String(channel))) {
+        problems.push(
+          `${at}.actions["${code}"]: channel must be one of ${WAKE_CHANNELS.map((c) => `"${c}"`).join(', ')}`
+        );
+      }
+    }
+  }
+  for (const field of Object.keys(value)) {
+    if (!['source', 'actions', 'description'].includes(field)) problems.push(`${at}: unknown field "${field}"`);
+  }
+  return problems;
+}
 
 function defaultTenantsPath() {
   // .jsonc, not .json: the file carries comments, and the extension is what tells
@@ -172,6 +208,8 @@ function readTenantRegistry(filePath = defaultTenantsPath()) {
     if (entry.connectionString && entry.envPrefix) {
       problems.push(`${where}: set either "connectionString" or "envPrefix", not both`);
     }
+
+    if (entry.gatewayConnector !== undefined) problems.push(...gatewayConnectorProblems(where, entry.gatewayConnector));
 
     if (entry.poolMax !== undefined && entry.poolMax !== null && entry.poolMax !== '') {
       const poolMax = Number(entry.poolMax);

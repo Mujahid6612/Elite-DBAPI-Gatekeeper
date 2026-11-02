@@ -141,6 +141,7 @@ function readConnectionSecrets(envPrefix) {
  * @property {'stderr'|'stdout'} eventLogFallback
  * @property {'silent'|'error'|'warn'|'info'|'debug'} logLevel
  * @property {string} projectRoot
+ * @property {{queueUrl: string, region: string, accessKeyId: string, secretAccessKey: string, timeoutMs: number}} gatewayConnectorWake
  */
 
 /** @type {EnvConfig} */
@@ -257,6 +258,22 @@ const envConfig = Object.freeze({
    * for debugging a live instance, not durable audit retention.
    */
   logRoot: process.env.LOG_ROOT || path.resolve(__dirname, '..'),
+  /**
+   * GatewayConnector wake signals (services/gatewayConnectorWake.js). After a successful
+   * action listed in a block's "gatewayConnector.actions", a small message is put on this
+   * SQS queue so GatewayConnector reads its outbound queue at once instead of on its next
+   * poll. Empty queueUrl = off, and nothing about a request changes. Credentials empty =
+   * the AWS SDK's default chain (e.g. an attached role).
+   */
+  gatewayConnectorWake: Object.freeze({
+    queueUrl: (process.env.GC_WAKE_QUEUE_URL || '').trim(),
+    region: (process.env.GC_WAKE_REGION || 'eu-west-1').trim(),
+    accessKeyId: process.env.GC_WAKE_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.GC_WAKE_SECRET_ACCESS_KEY || '',
+    // The signal is awaited before the response is returned (a serverless function may be
+    // frozen right after it answers), so it is bounded: a slow SQS costs at most this long.
+    timeoutMs: optionalInt(process.env.GC_WAKE_TIMEOUT_MS) ?? 1500
+  }),
   // Naming rule and reader for per-connection credentials. See the definitions above.
   CONNECTION_SECRET_SUFFIXES,
   readConnectionSecrets
