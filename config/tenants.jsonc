@@ -32,7 +32,7 @@
       // companyNum, procName and audit settings, and they share ONE Oracle pool.
       // Add a name here to let another app in; add a whole block to point an app
       // somewhere else. Matching is case-insensitive.
-      "sources": ["NativeApp", "WebApp"],
+      "sources": ["NativeApp", "WebApp", "GatewayConnector"],
       "target": "DBAPI",
 
       "companyNum": "101", // bound to pCompanyNum; never taken from the request body
