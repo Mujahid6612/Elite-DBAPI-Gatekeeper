@@ -4,8 +4,8 @@
  * END-TO-END (in process) — the BlinkRide backend's request reaches MySQL through the
  * shipped config/tenants.jsonc.
  *
- * The backend sends its request body as JsonReq with a routing `JHeader` added beside its own
- * `jHeader`, which must reach the procedure unchanged. `mysql2/promise` is faked, so this proves routing, dispatch and the response shape.
+ * The client sends JsonReq with Source / Target (and its accessToken / accessKey) in `JHeader`;
+ * the whole JsonReq must reach the procedure unchanged. `mysql2/promise` is faked, so this proves routing, dispatch and the response shape.
  */
 
 process.env.ORACLE_USER = 'u';
@@ -89,7 +89,7 @@ test('a request with a routing JHeader routes to the MySQL block and returns the
 
     const set = executed.find((entry) => entry.sql === 'SET @reqObj = ?');
     assert.equal(JSON.parse(set.values[0]).jHeader.source, 'driver-service');
-    assert.equal(JSON.parse(set.values[0]).JHeader, undefined);
+    assert.deepEqual(JSON.parse(set.values[0]).JHeader, { Source: 'BRBackend', Target: 'BRAPI' });
   } finally {
     server.close();
     Module._load = originalLoad;

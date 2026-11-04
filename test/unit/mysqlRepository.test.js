@@ -84,18 +84,24 @@ test('issues SET @reqObj, CALL, then SELECT @pjObj in that order', async () => {
 
     assert.equal(calls.executed.length, 3);
     assert.equal(calls.executed[0].statement.sql, 'SET @reqObj = ?');
-    assert.deepEqual(calls.executed[0].values, [
-      JSON.stringify({ jHeader: { source: 'BackendService' }, jData: { P_AFFILIATE_NUM: 7, P_APP_NAME: 'driver-ios' } })
-    ]);
+    assert.deepEqual(calls.executed[0].values, [ARGS.jsonReq]);
     assert.equal(calls.executed[1].statement.sql, 'CALL request_handler(?, ?, ?, ?, @reqObj, @pjObj)');
     assert.equal(calls.executed[2].statement.sql, 'SELECT @pjObj AS response');
   });
 });
 
-test('the routing JHeader is not passed to the procedure', async () => {
+test('JsonReq reaches the procedure unchanged, JHeader included', async () => {
   await withFakeMysql(async (repo, calls) => {
     await repo.execute(CONNECTION, 'request_handler', ARGS);
-    assert.ok(!calls.executed[0].values[0].includes('JHeader'));
+    assert.deepEqual(JSON.parse(calls.executed[0].values[0]), JSON.parse(ARGS.jsonReq));
+  });
+});
+
+test('JData is read whatever its case', async () => {
+  await withFakeMysql(async (repo, calls) => {
+    const jsonReq = JSON.stringify({ JHeader: { Source: 'AZSPostman', Target: 'BRAPI', accessToken: 't' }, JMetaData: {}, JData: { P_AFFILIATE_NUM: 'NY101', P_APP_NAME: 'DriverApp-IOS' } });
+    await repo.execute(CONNECTION, 'request_handler', { ...ARGS, jsonReq });
+    assert.deepEqual(calls.executed[1].values, ['1.2.3.4', 'NY101', 'DriverApp-IOS', ARGS.actionCode]);
   });
 });
 

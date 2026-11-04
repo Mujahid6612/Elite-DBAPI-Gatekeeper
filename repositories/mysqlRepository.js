@@ -98,11 +98,10 @@ function poolFor(connection) {
 }
 
 /**
- * Splits the Gatekeeper's `JsonReq` into what the procedure receives.
- *
- * `JHeader` ({Source, Target}) exists only so the Gatekeeper can route the request; the
- * BlinkRide backend adds it beside its own `jHeader`. It is removed here so the procedure sees
- * exactly the body the backend built, as it did when the backend called MySQL directly.
+ * What the procedure receives: the request's `JsonReq` exactly as the client sent it, with its
+ * `JHeader` (routing fields plus `accessToken` / `accessKey`, which request_handler checks),
+ * `JMetaData` and `JData`. Only `JData` is read here, for the plain arguments; its key may be
+ * `JData` or `jData`.
  *
  * @returns {{request: string, jData: object}}
  */
@@ -110,9 +109,10 @@ function splitRequest(jsonReq) {
   try {
     const parsed = JSON.parse(jsonReq);
     if (!parsed || typeof parsed !== 'object') return { request: jsonReq, jData: {} };
-    const request = { ...parsed };
-    delete request.JHeader;
-    return { request: JSON.stringify(request), jData: request.jData || {} };
+    const key = Object.keys(parsed).find((k) => k.toLowerCase() === 'jdata');
+    const jData = key && parsed[key] && typeof parsed[key] === 'object' ? parsed[key] : {};
+    // Re-serialised compactly: the parser pretty-prints JsonReq with CRLFs for Oracle.
+    return { request: JSON.stringify(parsed), jData };
   } catch {
     // A body that is not JSON is still passed through as @reqObj; the procedure rejects it.
     return { request: jsonReq, jData: {} };
