@@ -101,7 +101,7 @@
       // `request_handler(clientIp, affiliateNum, appName, actionCode, @reqObj, @pjObj)`
       // with the whole request JSON as @reqObj, see repositories/mysqlRepository.js.
       "projectName": "BlinkRide MySQL",
-      "sources": ["BRBackend"],
+      "sources": ["BRBackend", "GatewayConnector","AZSPostman"],
       "target": "BRAPI",
       "companyNum": "101",
 
