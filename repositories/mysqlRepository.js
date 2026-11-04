@@ -98,10 +98,25 @@ function poolFor(connection) {
 }
 
 /**
- * What the procedure receives: the request's `JsonReq` exactly as the client sent it, with its
- * `JHeader` (routing fields plus `accessToken` / `accessKey`, which request_handler checks),
- * `JMetaData` and `JData`. Only `JData` is read here, for the plain arguments; its key may be
- * `JData` or `jData`.
+ * The envelope sections and the camelCase spelling `request_handler` reads them under. MySQL JSON
+ * paths are case-sensitive: the procedure looks for `$.jHeader.accessToken`, so a client that sends
+ * `JHeader` (as the Gatekeeper's routing requires) would otherwise be told its credentials are not
+ * valid. The reply uses the same lowercase keys.
+ */
+const SECTIONS = Object.freeze([
+  ['JHeader', 'jHeader'],
+  ['JMetaData', 'jMetaData'],
+  ['JData', 'jData']
+]);
+
+/**
+ * What the procedure receives: the client's `JsonReq` with the camelCase sections filled in from
+ * their PascalCase twins. Nothing is removed or overwritten, so a client that already sends
+ * camelCase (the BlinkRide backend) is untouched and a PascalCase one (Postman) gains the keys
+ * the procedure reads. The PascalCase originals are kept in case anything reads those instead.
+ *
+ * Inside `jHeader`, `Source` and `Target` are also given as `source` and `target`, the spelling
+ * the backend's own header uses.
  *
  * @returns {{request: string, jData: object}}
  */
@@ -109,10 +124,24 @@ function splitRequest(jsonReq) {
   try {
     const parsed = JSON.parse(jsonReq);
     if (!parsed || typeof parsed !== 'object') return { request: jsonReq, jData: {} };
-    const key = Object.keys(parsed).find((k) => k.toLowerCase() === 'jdata');
-    const jData = key && parsed[key] && typeof parsed[key] === 'object' ? parsed[key] : {};
+
+    const request = { ...parsed };
+    for (const [pascal, camel] of SECTIONS) {
+      if (request[pascal] !== undefined && request[camel] === undefined) request[camel] = request[pascal];
+    }
+
+    if (request.jHeader && typeof request.jHeader === 'object') {
+      const header = { ...request.jHeader };
+      for (const key of ['Source', 'Target']) {
+        const lower = key.toLowerCase();
+        if (header[key] !== undefined && header[lower] === undefined) header[lower] = header[key];
+      }
+      request.jHeader = header;
+    }
+
+    const jData = request.jData && typeof request.jData === 'object' ? request.jData : {};
     // Re-serialised compactly: the parser pretty-prints JsonReq with CRLFs for Oracle.
-    return { request: JSON.stringify(parsed), jData };
+    return { request: JSON.stringify(request), jData };
   } catch {
     // A body that is not JSON is still passed through as @reqObj; the procedure rejects it.
     return { request: jsonReq, jData: {} };

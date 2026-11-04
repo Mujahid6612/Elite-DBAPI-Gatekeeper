@@ -90,16 +90,51 @@ test('issues SET @reqObj, CALL, then SELECT @pjObj in that order', async () => {
   });
 });
 
-test('JsonReq reaches the procedure unchanged, JHeader included', async () => {
+test('a request that already has jHeader and JHeader reaches the procedure unchanged', async () => {
   await withFakeMysql(async (repo, calls) => {
     await repo.execute(CONNECTION, 'request_handler', ARGS);
     assert.deepEqual(JSON.parse(calls.executed[0].values[0]), JSON.parse(ARGS.jsonReq));
   });
 });
 
+test('a PascalCase request gains the camelCase sections the procedure reads', async () => {
+  await withFakeMysql(async (repo, calls) => {
+    const jsonReq = JSON.stringify({
+      JHeader: { Source: 'AZSPostman', Target: 'BRAPI', accessToken: 'tok', accessKey: 'key' },
+      JMetaData: {},
+      JData: { P_APP_NAME: 'DriverApp-IOS' }
+    });
+    await repo.execute(CONNECTION, 'request_handler', { ...ARGS, jsonReq });
+
+    const sent = JSON.parse(calls.executed[0].values[0]);
+    assert.equal(sent.jHeader.accessToken, 'tok');
+    assert.equal(sent.jHeader.accessKey, 'key');
+    assert.equal(sent.jHeader.source, 'AZSPostman');
+    assert.equal(sent.jHeader.target, 'BRAPI');
+    assert.deepEqual(sent.jData, { P_APP_NAME: 'DriverApp-IOS' });
+    assert.deepEqual(sent.jMetaData, {});
+    // The originals are still there.
+    assert.equal(sent.JHeader.accessToken, 'tok');
+  });
+});
+
+test('a camelCase jHeader is never overwritten by the PascalCase one', async () => {
+  await withFakeMysql(async (repo, calls) => {
+    const jsonReq = JSON.stringify({ JHeader: { Source: 'A' }, jHeader: { source: 'B', accessToken: 'mine' } });
+    await repo.execute(CONNECTION, 'request_handler', { ...ARGS, jsonReq });
+
+    const sent = JSON.parse(calls.executed[0].values[0]);
+    assert.deepEqual(sent.jHeader, { source: 'B', accessToken: 'mine' });
+  });
+});
+
 test('JData is read whatever its case', async () => {
   await withFakeMysql(async (repo, calls) => {
-    const jsonReq = JSON.stringify({ JHeader: { Source: 'AZSPostman', Target: 'BRAPI', accessToken: 't' }, JMetaData: {}, JData: { P_AFFILIATE_NUM: 'NY101', P_APP_NAME: 'DriverApp-IOS' } });
+    const jsonReq = JSON.stringify({
+      JHeader: { Source: 'AZSPostman', Target: 'BRAPI', accessToken: 't' },
+      JMetaData: {},
+      JData: { P_AFFILIATE_NUM: 'NY101', P_APP_NAME: 'DriverApp-IOS' }
+    });
     await repo.execute(CONNECTION, 'request_handler', { ...ARGS, jsonReq });
     assert.deepEqual(calls.executed[1].values, ['1.2.3.4', 'NY101', 'DriverApp-IOS', ARGS.actionCode]);
   });
