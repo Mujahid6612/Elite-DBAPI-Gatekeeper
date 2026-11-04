@@ -8,7 +8,7 @@
 const DriverType = Object.freeze({ Microsoft: 0, Oracle: 1 });
 
 /** Mirrors the legacy .NET DataBaseType enum. */
-const DataBaseType = Object.freeze({ OLEDB: 0, SQLDB: 1, ORACLEDB: 2 });
+const DataBaseType = Object.freeze({ OLEDB: 0, SQLDB: 1, ORACLEDB: 2, MYSQLDB: 3 });
 
 /** Mirrors the legacy .NET LogType enum. */
 const LogType = Object.freeze({ Html: 0, Text: 1, EventLog: 2 });

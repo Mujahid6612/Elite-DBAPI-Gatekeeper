@@ -99,6 +99,15 @@ function collectProblems() {
     problems.push(`ORACLE_CALL_TIMEOUT_MS must be a non-negative integer (received: ${envConfig.oracleCallTimeoutMs})`);
   }
 
+  for (const [name, value] of [
+    ['MYSQL_CONNECT_TIMEOUT_MS', envConfig.mysqlConnectTimeoutMs],
+    ['MYSQL_QUERY_TIMEOUT_MS', envConfig.mysqlQueryTimeoutMs]
+  ]) {
+    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+      problems.push(`${name} must be a non-negative integer (received: ${value})`);
+    }
+  }
+
   if (!Number.isInteger(envConfig.shutdownTimeoutMs) || envConfig.shutdownTimeoutMs < 0) {
     problems.push(`SHUTDOWN_TIMEOUT_MS must be a non-negative integer (received: ${envConfig.shutdownTimeoutMs})`);
   }

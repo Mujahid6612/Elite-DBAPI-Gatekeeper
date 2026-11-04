@@ -41,17 +41,28 @@ function sqsSender() {
   return defaultSender;
 }
 
+/** The value of the first of `names` present on `obj`, whatever the case of its key. */
+function pick(obj, names) {
+  const keys = Object.keys(obj);
+  for (const name of names) {
+    const key = keys.find((k) => k.toLowerCase() === name);
+    if (key !== undefined) return obj[key];
+  }
+  return undefined;
+}
+
 /**
- * True when the procedure output reports success: JHeader.ActionCode (or ResponseCode) 0.
+ * True when the procedure output reports success, code 0, in either database's shape:
+ * Oracle `JHeader.ActionCode`, MySQL (request_handler) `jHeader.responseCode`.
  * The output is JSON text, possibly encoded twice (a JSON string holding the JSON).
  */
 function procedureSucceeded(output) {
   try {
     let value = JSON.parse(String(output));
     if (typeof value === 'string') value = JSON.parse(value);
-    const header = value && typeof value === 'object' ? value.JHeader || value.jHeader : null;
+    const header = value && typeof value === 'object' ? pick(value, ['jheader']) : null;
     if (!header || typeof header !== 'object') return false;
-    const code = header.ActionCode ?? header.ResponseCode;
+    const code = pick(header, ['actioncode', 'responsecode']);
     return code !== undefined && code !== null && code !== '' && Number(code) === 0;
   } catch {
     return false;

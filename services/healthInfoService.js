@@ -10,6 +10,7 @@
  */
 
 const oracleRepository = require('../repositories/oracleRepository.js');
+const mysqlRepository = require('../repositories/mysqlRepository.js');
 const tenantRegistry = require('../config/tenantRegistry.js');
 const appStatus = require('../utils/appStartTime.js');
 
@@ -29,14 +30,15 @@ const appStatus = require('../utils/appStartTime.js');
  * nothing useful about WHICH database is down, which is the only question worth
  * asking of it.
  */
-async function probeConnection(connection) {
+async function probeConnection({ connection, dbType }) {
   try {
     // Proves the pool can still hand out a usable session, rather than only that an
     // object exists: a pool whose backend has gone away still looks fine.
     // verifyConnectableFor() also CREATES the pool if this connection has never been
     // used, so a database no request has touched yet is still checked - and that is
     // the one most likely to be misconfigured.
-    await oracleRepository.verifyConnectableFor(connection);
+    if (String(dbType).trim() === '3') await mysqlRepository.verifyConnectableFor(connection);
+    else await oracleRepository.verifyConnectableFor(connection);
     return {
       name: connection.name,
       envPrefix: connection.poolKey || null,
@@ -70,7 +72,8 @@ async function probeAllConnections() {
     const seen = new Map();
     for (const block of tenantRegistry.allBlocks()) {
       const connection = tenantRegistry.connectionFor(block);
-      if (!seen.has(connection.poolKey)) seen.set(connection.poolKey, connection);
+      // dbType is kept beside the descriptor because the two engines need different probes.
+      if (!seen.has(connection.poolKey)) seen.set(connection.poolKey, { connection, dbType: block.dbType });
     }
     connections = [...seen.values()];
   } catch (error) {

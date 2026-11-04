@@ -14,12 +14,14 @@ const { DataBaseType } = require('../constants');
 const { fixNullInt } = require('../utils/nullHelpers');
 const oracleRepository = require('./oracleRepository');
 const sqlServerRepository = require('./sqlServerRepository');
+const mysqlRepository = require('./mysqlRepository');
 
 /**
  * Dispatches a tenant's stored-procedure call to the driver matching its
  * configured `dbType`. `dbType=2` (Oracle) is the only tenant currently
  * configured in config/tenants.jsonc; `dbType=1` (SQL Server) is supported for
- * parity with the source app's driver coverage. `dbType=0` (OLE DB) has no
+ * parity with the source app's driver coverage, and `dbType=3` (MySQL) serves the BlinkRide
+ * backend's `request_handler` procedure. `dbType=0` (OLE DB) has no
  * portable Node.js equivalent and is rejected explicitly.
  *
  * `connection` is the descriptor resolved from the request's Source/Target by
@@ -46,6 +48,10 @@ async function processDbRequest({ connection, connectionString, dbType, procName
   if (type === DataBaseType.SQLDB) {
     const target = connection && connection.connectString ? connection.connectString : connectionString;
     return sqlServerRepository.execute(target, procName, args);
+  }
+
+  if (type === DataBaseType.MYSQLDB) {
+    return mysqlRepository.execute(connection, procName, args);
   }
 
   throw new Error('OLE DB (dbType=0) has no portable Node.js equivalent and is not used by any configured block.');

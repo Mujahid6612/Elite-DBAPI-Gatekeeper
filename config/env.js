@@ -137,6 +137,8 @@ function readConnectionSecrets(envPrefix) {
  * @property {string} oracleClientLibDir
  * @property {Record<string, number>} oraclePool
  * @property {number|undefined} oracleCallTimeoutMs
+ * @property {number} mysqlConnectTimeoutMs
+ * @property {number|undefined} mysqlQueryTimeoutMs
  * @property {number} shutdownTimeoutMs
  * @property {'stderr'|'stdout'} eventLogFallback
  * @property {'silent'|'error'|'warn'|'info'|'debug'} logLevel
@@ -225,6 +227,10 @@ const envConfig = Object.freeze({
   // Milliseconds one database call may run before the driver aborts it. Unset means no
   // limit, except on Vercel where it defaults to stay under the function's 60s ceiling.
   oracleCallTimeoutMs: optionalInt(process.env.ORACLE_CALL_TIMEOUT_MS) ?? (process.env.VERCEL ? 40000 : undefined),
+  // MySQL (dbType 3). Milliseconds; the connect timeout is always set, because the driver's own
+  // default is 10s but a serverless host should not depend on that staying true.
+  mysqlConnectTimeoutMs: optionalInt(process.env.MYSQL_CONNECT_TIMEOUT_MS) ?? 10000,
+  mysqlQueryTimeoutMs: optionalInt(process.env.MYSQL_QUERY_TIMEOUT_MS) ?? (process.env.VERCEL ? 40000 : undefined),
   // How long a graceful shutdown may take before the process is forced to exit.
   shutdownTimeoutMs: optionalInt(process.env.SHUTDOWN_TIMEOUT_MS) ?? 15000,
   eventLogFallback: (process.env.EVENT_LOG_FALLBACK || 'stderr').trim().toLowerCase(),

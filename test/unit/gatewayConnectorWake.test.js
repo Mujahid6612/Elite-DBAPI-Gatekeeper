@@ -37,6 +37,17 @@ test('the procedure output counts as success only when JHeader reports code 0', 
   assert.equal(procedureSucceeded(JSON.stringify({ JData: {} })), false);
 });
 
+test('a MySQL (request_handler) output counts by jHeader.responseCode', () => {
+  assert.equal(
+    procedureSucceeded(JSON.stringify({ jHeader: { responseCode: 0, message: 'OK', status: 'success' }, jData: {} })),
+    true
+  );
+  assert.equal(procedureSucceeded(JSON.stringify({ jHeader: { responseCode: '0' } })), true);
+  assert.equal(procedureSucceeded(JSON.stringify(JSON.stringify({ jHeader: { responseCode: 0 } }))), true); // double-encoded
+  assert.equal(procedureSucceeded(JSON.stringify({ jHeader: { responseCode: 3, message: 'Invalid' } })), false);
+  assert.equal(procedureSucceeded(JSON.stringify({ jHeader: { message: 'no code' } })), false);
+});
+
 test('a signal is due only for a listed action code (any case) that succeeded', () => {
   assert.deepEqual(signalFor(block, 'cmn.i.outbound_message', OK), { source: 'elite', channel: 'email' });
   assert.deepEqual(signalFor(block, 'CMN.I.OUTBOUND_BATCH', OK), { source: 'elite' }); // every channel

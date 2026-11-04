@@ -304,14 +304,17 @@ function connectionFor(tenant) {
     // Decrypts here rather than at load, so a wrong CONFIG_ENCRYPTION_KEY surfaces as
     // a named ConfigurationError on the route that uses it, not as a startup crash
     // that names no block.
-    const ado = parseAdoConnectionString(tenant.targetDBConnectionString);
+    const decrypted = tenant.targetDBConnectionString;
+    const ado = parseAdoConnectionString(decrypted);
     return {
       name: tenant.projectName,
       // Two blocks holding the same connection string are the same database.
       poolKey: `cs:${cipherText}`,
       user: ado['user id'] || ado.uid || '',
       password: ado.password || ado.pwd || '',
-      connectString: ado['data source'] || ado.server || '',
+      // MySQL needs port, database and SSL as well as the host, so its driver gets the
+      // whole string; Oracle and SQL Server only ever wanted the Data Source.
+      connectString: String(tenant.dbType).trim() === '3' ? decrypted : ado['data source'] || ado.server || '',
       poolMax: tenant.poolMax
     };
   }

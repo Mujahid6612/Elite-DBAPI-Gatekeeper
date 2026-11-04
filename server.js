@@ -3,6 +3,7 @@
 const app = require('./app');
 const oracleRepository = require('./repositories/oracleRepository');
 const sqlServerRepository = require('./repositories/sqlServerRepository');
+const mysqlRepository = require('./repositories/mysqlRepository');
 const envConfig = require('./config/env');
 const { validateEnv } = require('./config/validateEnv');
 const appLogger = require('./utils/appLogger');
@@ -19,6 +20,7 @@ let shuttingDown = false;
 async function closeDatabasePools() {
   await oracleRepository.closePool();
   await sqlServerRepository.closeAllPools();
+  await mysqlRepository.closeAllPools();
 }
 
 /**

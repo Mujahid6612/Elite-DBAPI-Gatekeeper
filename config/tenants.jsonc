@@ -95,6 +95,38 @@
       "procName": "XYZ_REQUEST_HANDLER.ACTIONS",
       "logType": 0,
       "logPath": "~/Log"
+    },
+    {
+      // BlinkRide backend (BR-Backend). Its database is MySQL, not Oracle: dbType 3 runs
+      // `request_handler(clientIp, affiliateNum, appName, actionCode, @reqObj, @pjObj)`
+      // with the whole request JSON as @reqObj, see repositories/mysqlRepository.js.
+      "projectName": "BlinkRide MySQL",
+      "sources": ["BRBackend"],
+      "target": "BRAPI",
+      "companyNum": "101",
+
+      // Tighten to the backend's egress addresses once they are known; "*" admits everyone.
+      "whitelistedIPs": "*",
+      "blacklistedIPs": "",
+      "enableLogging": true,
+
+      // EMPTY ON PURPOSE: the BlinkRide backend authenticates to its own database and sends
+      // no APILogin/APIPassword, so setting both here would reject every call.
+      "apiUserName": "",
+      "apiPassword": "",
+
+      // Credentials come from the environment, never from this file:
+      //     DB_BR_USER / DB_BR_PASSWORD / DB_BR_CONNECT_STRING
+      // CONNECT_STRING is an ADO-style string, e.g.
+      //     Server=<rds-host>;Port=3306;Database=<name>;SslMode=Required
+      "envPrefix": "DB_BR",
+      "poolMax": 2,
+
+      "dbType": 3, // 3 = MySQL
+      "driverType": 0,
+      "procName": "request_handler",
+      "logType": 0,
+      "logPath": "~/Log"
     }
   ]
 }

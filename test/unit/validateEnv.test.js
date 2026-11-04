@@ -24,6 +24,10 @@ const VALID = {
   ORACLE_USER: 'u',
   ORACLE_PASSWORD: 'p',
   ORACLE_CONNECTION: 'db',
+  // The shipped config/tenants.jsonc routes BlinkRide to MySQL through envPrefix DB_BR.
+  DB_BR_USER: 'u',
+  DB_BR_PASSWORD: 'p',
+  DB_BR_CONNECT_STRING: 'Server=h;Database=d',
   EXPOSE_ERRORS: 'false',
   BODY_LIMIT: '2mb'
 };
