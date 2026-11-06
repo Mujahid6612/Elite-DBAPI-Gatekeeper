@@ -28,6 +28,9 @@ const VALID = {
   DB_BR_USER: 'u',
   DB_BR_PASSWORD: 'p',
   DB_BR_CONNECT_STRING: 'Server=h;Database=d',
+  DB_GFT_USER: 'u',
+  DB_GFT_PASSWORD: 'p',
+  DB_GFT_CONNECT_STRING: 'Server=h;Database=gft_dev',
   EXPOSE_ERRORS: 'false',
   BODY_LIMIT: '2mb'
 };

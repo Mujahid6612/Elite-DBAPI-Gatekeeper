@@ -13,6 +13,9 @@ process.env.ORACLE_PASSWORD = 'p';
 process.env.ORACLE_CONNECTION = 'db';
 process.env.DB_BR_USER = 'br';
 process.env.DB_BR_PASSWORD = 'secret';
+process.env.DB_GFT_USER = 'br';
+process.env.DB_GFT_PASSWORD = 'secret';
+process.env.DB_GFT_CONNECT_STRING = 'Server=db.example.com;Port=3306;Database=gft_dev';
 process.env.DB_BR_CONNECT_STRING = 'Server=db.example.com;Port=3306;Database=br';
 process.env.LOG_ROOT = require('os').tmpdir();
 
@@ -22,17 +25,22 @@ const http = require('http');
 const Module = require('module');
 
 const executed = [];
+/** `database` each pool was created for, in creation order. */
+const pools = [];
 const fakeMysql = {
-  createPool: () => ({
-    getConnection: async () => ({
-      execute: async (statement, values) => {
-        executed.push({ sql: statement.sql, values });
-        return [/SELECT @pjObj/.test(statement.sql) ? [{ response: '{"jHeader":{"responseCode":0}}' }] : []];
-      },
-      release: () => {}
-    }),
-    end: async () => {}
-  })
+  createPool: (options) => {
+    pools.push(options.database);
+    return {
+      getConnection: async () => ({
+        execute: async (statement, values) => {
+          executed.push({ sql: statement.sql, values });
+          return [/SELECT @pjObj/.test(statement.sql) ? [{ response: '{"jHeader":{"responseCode":0}}' }] : []];
+        },
+        release: () => {}
+      }),
+      end: async () => {}
+    };
+  }
 };
 
 const originalLoad = Module._load;
@@ -102,6 +110,20 @@ test('an unknown source is refused rather than served', async () => {
     const { port } = server.address();
     const { text } = await post(port, envelope('Nobody', 'BRAPI'));
     assert.match(JSON.parse(text), /^Access Denied\./);
+  } finally {
+    server.close();
+  }
+});
+
+test('one source reaches BlinkRide or GFT depending on the Target', async () => {
+  const server = app.listen(0);
+  try {
+    const { port } = server.address();
+    await post(port, envelope('AZSPostman', 'BRAPI'));
+    await post(port, envelope('AZSPostman', 'GFTAPI'));
+    // BRAPI's pool was already created by an earlier test in this file; GFT's is new.
+    assert.ok(pools.includes('gft_dev'), `pools created for: ${pools.join(', ')}`);
+    assert.ok(pools.includes('br'));
   } finally {
     server.close();
   }

@@ -127,6 +127,36 @@
       "procName": "request_handler",
       "logType": 0,
       "logPath": "~/Log"
+    },
+    {
+      // GFT. Same MySQL server, user and password as "BlinkRide MySQL", but the `gft_dev` schema, so
+      // it is its own block: the database is chosen by Target, and a (Source, Target) pair can
+      // only belong to one block. A client reaches it with Target "GFTAPI" - AZSPostman uses
+      // BRAPI for BlinkRide and GFTAPI for this one. To let another app in, add its name to
+      // "sources"; it then reaches ONLY this database through this Target.
+      "projectName": "GFT MySQL",
+      "sources": ["AZSPostman"],
+      "target": "GFTAPI",
+      "companyNum": "101",
+
+      "whitelistedIPs": "*",
+      "blacklistedIPs": "",
+      "enableLogging": true,
+
+      // EMPTY ON PURPOSE, as for BlinkRide: request_handler checks accessToken/accessKey itself.
+      "apiUserName": "",
+      "apiPassword": "",
+
+      // DB_GFT_USER / DB_GFT_PASSWORD / DB_GFT_CONNECT_STRING - the same user and password as
+      // DB_BR, with Database=gft_dev in the connect string.
+      "envPrefix": "DB_GFT",
+      "poolMax": 2,
+
+      "dbType": 3, // 3 = MySQL
+      "driverType": 0,
+      "procName": "request_handler",
+      "logType": 0,
+      "logPath": "~/Log"
     }
   ]
 }
