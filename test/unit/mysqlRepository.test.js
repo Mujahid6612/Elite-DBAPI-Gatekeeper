@@ -37,7 +37,10 @@ const CONNECTION = {
 };
 
 /** Loads a fresh repository against a fake mysql2 and records everything it is asked to do. */
-async function withFakeMysql(run, { rows = [{ response: '{"jHeader":{"responseCode":0}}' }] } = {}) {
+async function withFakeMysql(
+  run,
+  { rows = [{ response: '{"jHeader":{"responseCode":0}}' }], parameterCount = 6 } = {}
+) {
   const calls = { pools: [], executed: [], released: 0, ended: 0, queried: [] };
 
   const fake = {
@@ -55,6 +58,7 @@ async function withFakeMysql(run, { rows = [{ response: '{"jHeader":{"responseCo
         }),
         query: async (statement) => {
           calls.queried.push(statement);
+          if (/information_schema\.PARAMETERS/.test(statement.sql)) return [[{ n: parameterCount }]];
           return [[{ 1: 1 }]];
         },
         end: async () => {
@@ -228,6 +232,29 @@ test('parseTarget reads both ADO and host:port/database spellings', async () => 
     });
     assert.equal(repo.parseTarget('Server=h;SslMode=None').ssl, false);
   });
+});
+
+test('a connect string without a host is rejected instead of falling back to localhost', async () => {
+  await withFakeMysql(async (repo, calls) => {
+    const connection = { ...CONNECTION, poolKey: 'env:NOHOST', connectString: 'Port=3306;Database=gft_dev' };
+    await assert.rejects(repo.execute(connection, 'request_handler', ARGS), /has no Server\/Host\/Data Source/);
+    assert.equal(calls.executed.length, 0);
+  });
+});
+
+test('a five-parameter procedure is called without the affiliate number', async () => {
+  await withFakeMysql(
+    async (repo, calls) => {
+      await repo.execute({ ...CONNECTION, poolKey: 'env:DB_GFT' }, 'request_handler', ARGS);
+      const call = calls.executed.find((e) => /^CALL/.test(e.statement.sql));
+      assert.equal(call.statement.sql, 'CALL request_handler(?, ?, ?, @reqObj, @pjObj)');
+      assert.deepEqual(call.values, ['1.2.3.4', 'driver-ios', 'DRV.S.LOGIN_DRIVER']);
+
+      await repo.execute({ ...CONNECTION, poolKey: 'env:DB_GFT' }, 'request_handler', ARGS);
+      assert.equal(calls.queried.filter((q) => /information_schema/.test(q.sql)).length, 1, 'catalogue read once');
+    },
+    { parameterCount: 5 }
+  );
 });
 
 test('closeAllPools ends every pool', async () => {

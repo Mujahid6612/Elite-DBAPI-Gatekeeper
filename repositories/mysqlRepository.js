@@ -50,7 +50,14 @@ function parseTarget(connectString) {
     }
     const sslMode = String(fields['ssl mode'] || fields.sslmode || fields.ssl || '').toLowerCase();
     return {
-      host: fields['data source'] || fields.server || fields.host || '',
+      host:
+        fields['data source'] ||
+        fields.server ||
+        fields.host ||
+        fields.hostname ||
+        fields.address ||
+        fields['network address'] ||
+        '',
       port: Number.parseInt(fields.port, 10) || 3306,
       database: fields.database || fields['initial catalog'] || '',
       ssl: !SSL_OFF.has(sslMode)
@@ -70,6 +77,13 @@ function parseTarget(connectString) {
  */
 function buildPoolOptions(connection) {
   const target = parseTarget(connection.connectString);
+  // mysql2 silently falls back to localhost when host is empty, which surfaces as a misleading
+  // `ECONNREFUSED 127.0.0.1:3306`. Name the real problem instead.
+  if (!target.host) {
+    throw new Error(
+      `MySQL connect string for "${connection.name || connection.poolKey}" has no Server/Host/Data Source entry`
+    );
+  }
   const options = {
     host: target.host,
     port: target.port,
@@ -148,14 +162,49 @@ function splitRequest(jsonReq) {
   }
 }
 
-/** The four plain arguments. `?? null` rather than a default: NULL means "not supplied". */
-function procedureArguments(args, jData) {
-  return [
-    fixNullString(args.clientIP) || null,
-    jData.P_AFFILIATE_NUM ?? null,
-    jData.P_APP_NAME ?? null,
-    args.actionCode
-  ];
+/**
+ * The leading plain arguments, sized to the procedure's declared parameter count.
+ *
+ * Two shapes exist in this estate:
+ *   6 parameters (clientIp, affiliateNum, appName, actionCode, request, OUT response) - BlinkRide
+ *   5 parameters (clientIp,               appName, actionCode, request, OUT response) - GFT
+ * `?? null` rather than a default: NULL means "not supplied".
+ */
+function procedureArguments(args, jData, parameterCount) {
+  const clientIp = fixNullString(args.clientIP) || null;
+  const appName = jData.P_APP_NAME ?? null;
+  if (parameterCount === 5) return [clientIp, appName, args.actionCode];
+  return [clientIp, jData.P_AFFILIATE_NUM ?? null, appName, args.actionCode];
+}
+
+const PARAMETER_COUNT_SQL = `SELECT COUNT(*) AS n FROM information_schema.PARAMETERS
+  WHERE SPECIFIC_SCHEMA = COALESCE(?, DATABASE()) AND SPECIFIC_NAME = ?
+    AND ROUTINE_TYPE = 'PROCEDURE' AND PARAMETER_MODE IS NOT NULL`;
+
+/** Parameter counts already read from the catalogue, keyed by pool and procedure. */
+const parameterCounts = new Map();
+
+/**
+ * How many parameters `procName` declares, read once from information_schema and remembered. An
+ * unreadable catalogue (no privilege, odd server) yields 6, the BlinkRide shape this driver was
+ * built for, so behaviour only changes where the procedure demonstrably has a different arity.
+ */
+async function parameterCountFor(pool, connection, procName) {
+  const key = `${connection.poolKey || ''}|${procName}`;
+  if (parameterCounts.has(key)) return parameterCounts.get(key);
+
+  const [schema, name] = String(procName).includes('.') ? String(procName).split('.') : [null, procName];
+  let count = 6;
+  try {
+    const [rows] = await pool.query({ ...statement(PARAMETER_COUNT_SQL), values: [schema, name] });
+    const found = Number(rows && rows[0] && rows[0].n);
+    if (found === 5 || found === 6) count = found;
+  } catch (error) {
+    appLogger.warn(`Could not read parameters of ${procName}; assuming 6`, { message: error && error.message });
+    return count;
+  }
+  parameterCounts.set(key, count);
+  return count;
 }
 
 /** Applies the query timeout to one statement. 0/unset means no limit. */
@@ -190,7 +239,7 @@ async function execute(connection, procName, args) {
     const { request, jData } = splitRequest(args.jsonReq);
     await session.execute(statement(`SET ${REQUEST_VARIABLE} = ?`), [request]);
 
-    const params = procedureArguments(args, jData);
+    const params = procedureArguments(args, jData, await parameterCountFor(pool, connection, procName));
     const placeholders = params.map(() => '?').join(', ');
     await session.execute(
       statement(`CALL ${procName}(${placeholders}, ${REQUEST_VARIABLE}, ${RESPONSE_VARIABLE})`),
@@ -222,6 +271,7 @@ async function verifyConnectableFor(connection) {
 async function closeAllPools() {
   const open = [...pools.values()];
   pools.clear();
+  parameterCounts.clear();
 
   await Promise.all(
     open.map(async (pool) => {
