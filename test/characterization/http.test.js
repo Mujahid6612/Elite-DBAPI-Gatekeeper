@@ -270,9 +270,11 @@ test('POST returns HTTP 200 with the exception message when the DB fails (G4)', 
         // failing procedure, and with whitelistedIPs='*' that reached anonymous
         // callers. The full message still goes to the tenant and application logs.
         const body = JSON.parse(res.body);
-        assert.equal(body, GENERIC_MESSAGE, 'driver detail must be replaced');
-        assert.ok(!/ORA-/.test(body), 'no Oracle error code may reach the caller');
-        assert.ok(!/bad proc/.test(body), 'nor the procedure detail');
+        // CHANGED AGAIN: a database failure now says so (utils/clientSafeError.js) instead of the opaque
+        // generic string. The driver's own text is still withheld unless EXPOSE_DB_ERROR_DETAIL is set.
+        assert.match(body, /^Database error\./, 'the caller is told the fault is database-side');
+        assert.match(body, /ORA-06550/, 'the code, which names a class of fault, is shown');
+        assert.ok(!/bad proc/.test(body), 'the procedure detail stays out by default');
       } finally {
         dbRepository.processDbRequest = original;
       }

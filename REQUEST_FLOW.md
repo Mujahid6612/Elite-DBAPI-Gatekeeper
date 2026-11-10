@@ -565,7 +565,8 @@ from the .NET original, and clients depend on it.
 | **No Source/Target in JHeader** | `Access Denied. This request is missing the JsonReq.JHeader values Source and Target…` |
 | **Unconfigured Source/Target** | `Access Denied. …do not match any database configured for this deployment. [Source:X, Target:Y]` |
 | Malformed JSON body | the V8 parser message, e.g. `Unexpected token …` |
-| Oracle / driver / filesystem fault | `An error has occurred.` — detail is logged, not returned |
+| Database failure (Oracle, MySQL, SQL Server, or the path to them) | `Database error. The request reached the Gatekeeper but the database side could not complete it. Please check the database … and the DB action … [DB error code: ER_SP_DOES_NOT_EXIST]`. The driver's own message is appended as `Details: …` only when `EXPOSE_DB_ERROR_DETAIL=true`; it is always logged. |
+| Any other fault (filesystem, bug) | `An error has occurred.` — detail is logged, not returned |
 
 Two wording rules apply to anything returned to a caller, and both are load-bearing:
 

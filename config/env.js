@@ -129,6 +129,7 @@ function readConnectionSecrets(envPrefix) {
  * @property {string} bodyLimit
  * @property {boolean} trustProxy
  * @property {boolean} exposeErrors
+ * @property {boolean} exposeDbErrorDetail
  * @property {string} oracleUser
  * @property {string} oraclePassword
  * @property {string} oracleConnectString
@@ -156,6 +157,10 @@ const envConfig = Object.freeze({
   bodyLimit: (process.env.BODY_LIMIT || '2mb').trim(),
   trustProxy: toBoolean(process.env.TRUST_PROXY, false),
   exposeErrors: toBoolean(process.env.EXPOSE_ERRORS, false),
+  // When true, a database failure's own message (e.g. `ER_SP_DOES_NOT_EXIST`, `ORA-...`) is appended to
+  // the "Database error" text a caller receives. Off by default: driver text can name hosts, schemas and
+  // procedures, and a tenant may allow any caller (`whitelistedIPs=*`).
+  exposeDbErrorDetail: toBoolean(process.env.EXPOSE_DB_ERROR_DETAIL, false),
   /**
    * Passphrase for the encrypted `connectionString` values in config/tenants.jsonc.
    *

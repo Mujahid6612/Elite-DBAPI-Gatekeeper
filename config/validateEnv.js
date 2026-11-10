@@ -173,6 +173,12 @@ function collectRoutingProblems() {
 }
 
 function emitWarnings() {
+  if (envConfig.exposeDbErrorDetail) {
+    appLogger.warn(
+      'EXPOSE_DB_ERROR_DETAIL is enabled: database error messages (which can name hosts, schemas and ' +
+        'procedures) are returned to HTTP callers. Use it while integrating; turn it off for public traffic.'
+    );
+  }
   if (envConfig.exposeErrors) {
     appLogger.warn(
       'EXPOSE_ERRORS is enabled: unhandled errors will return their message and full stack trace ' +
