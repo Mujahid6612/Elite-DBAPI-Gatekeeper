@@ -81,7 +81,7 @@
     },
     {
       "projectName": "XYZ Apps",
-      "sources": ["XYZWebApp"],
+      "sources": ["XYZWebApp", "GatewayConnector"],
       "target": "XYZAPI",
       "companyNum": "101",
       "whitelistedIPs": "*",
@@ -135,7 +135,7 @@
       // BRAPI for BlinkRide and GFTAPI for this one. To let another app in, add its name to
       // "sources"; it then reaches ONLY this database through this Target.
       "projectName": "GFT MySQL",
-      "sources": ["AZSPostman", "NativeApp", "WebApp"],
+      "sources": ["AZSPostman", "NativeApp", "WebApp", "GatewayConnector"],
       "target": "GFTAPI",
       "companyNum": "101",
 
